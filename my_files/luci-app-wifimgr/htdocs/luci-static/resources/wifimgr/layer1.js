@@ -936,6 +936,31 @@ async function system_exec(cmd, args) {
     }
 }
 
+async function wireless_backup() {
+    try {
+        const res = await fs.exec('/bin/cat', ['/etc/config/wireless']);
+        if (res.code !== 0) return mkErr('read_failed');
+        return ok(res.stdout);
+    } catch(e) {
+        return mkErr('exec_failed');
+    }
+}
+
+async function wireless_restore(content) {
+    if (hwBusy) return busy();
+    hwBusy = true;
+    try {
+        const wRes = await fs.write('/etc/config/wireless', content);
+        if (!wRes) { hwBusy = false; return mkErr('write_failed'); }
+        await fs.exec('/bin/sh', ['-c', '( /sbin/wifi reload >/tmp/wifi-reload.log 2>&1 ) &']);
+        hwBusy = false;
+        return { ok: true, status: 'PENDING_RELOAD', verified: false, data: null, error: null };
+    } catch(e) {
+        hwBusy = false;
+        return mkErr('exec_failed');
+    }
+}
+
 // --- Module export ---
 
 const Layer1 = {
@@ -993,7 +1018,9 @@ const Layer1 = {
     system_wifi_reload,
     system_reboot,
     system_logs,
-    system_exec
+    system_exec,
+    wireless_backup,
+    wireless_restore
 };
 
 return baseclass.extend(Layer1);

@@ -1343,7 +1343,9 @@ const Layer2 = {
     // relayd
     relayd_setup, relayd_remove, relayd_get, fw_wan_add_network, repeater_fw_remove,
     // passthrough
-    iface_stats: layer1.iface_stats
+    iface_stats:      layer1.iface_stats,
+    wireless_backup:  layer1.wireless_backup,
+    wireless_restore: layer1.wireless_restore
 };
 
 return baseclass.extend(Layer2);

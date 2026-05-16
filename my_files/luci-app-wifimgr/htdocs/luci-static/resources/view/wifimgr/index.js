@@ -51,6 +51,7 @@ var _pendingTxMode  = null; // user-selected TX mode not yet saved to UCI — su
 var _signalHistory  = {}; // ifname → Array<number|null> ring buffer (last 20 samples)
 var _utilHistory    = {}; // radio_id → Array<number|null> ring buffer (last 20 samples)
 var _tpBufs        = {}; // radio_id → { rx:[], tx:[], prev:null } — survives poll re-renders
+var _rssiMloBufs   = {}; // ifname → { link_id: Array<number|null> } — per-link RSSI history
 
 // ── STATIC TAB LIST ───────────────────────────────────────────────────────────
 // Networks | Radios | Clients | Diagnostics (always visible)
@@ -275,6 +276,20 @@ function bestClientSpeed(c) {
     return bestStr;
 }
 
+function bestClientDetail(c) {
+    var cands = [];
+    if (c.links && c.links.length) c.links.forEach(function(lk) { if (lk.tx_bitrate) cands.push(lk.tx_bitrate); });
+    if (!cands.length && c.tx_bitrate) cands.push(c.tx_bitrate);
+    var best = 0, bestDetail = null;
+    cands.forEach(function(s) {
+        var p = parseBitrate(s);
+        if (!p || !p.detail) return;
+        var n = parseInt(p.speed);
+        if (!isNaN(n) && n > best) { best = n; bestDetail = p.detail; }
+    });
+    return bestDetail;
+}
+
 function wpaLabel(state) {
     if (!state || state === 'DISCONNECTED') return 'Disconnected';
     if (state === 'COMPLETED') return 'Connected';
@@ -323,6 +338,45 @@ function drawSparkline(canvas, rxBuf, txBuf) {
     }
     drawLine(txBuf, '#5b9bd5');
     drawLine(rxBuf, '#4caf50');
+}
+
+function rssiMloPush(ifname, links) {
+    if (!_rssiMloBufs[ifname]) _rssiMloBufs[ifname] = {};
+    var buf = _rssiMloBufs[ifname];
+    (links || []).forEach(function(lk) {
+        var id = lk.link_id;
+        if (!buf[id]) buf[id] = [];
+        var sig = (typeof lk.signal === 'number' && lk.signal < 0) ? lk.signal : null;
+        buf[id].push(sig);
+        if (buf[id].length > 30) buf[id].shift();
+    });
+}
+
+function drawRssiSparkline(canvas, ifname, links) {
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0a0f18';
+    ctx.fillRect(0, 0, W, H);
+    var buf = _rssiMloBufs[ifname] || {};
+    var MIN = -85, MAX = -35;
+    (links || []).forEach(function(lk) {
+        var data = buf[lk.link_id] || [];
+        if (data.length < 2) return;
+        var freq = lk.freq || 0;
+        var color = freq < 3000 ? '#5b9bd5' : freq < 5950 ? '#4caf7d' : '#f5a623';
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+        var drawn = false;
+        for (var i = 0; i < data.length; i++) {
+            var v = data[i];
+            if (v === null) { drawn = false; continue; }
+            var x = (W - 2) * i / (data.length - 1) + 1;
+            var y = H - 2 - ((v - MIN) / (MAX - MIN)) * (H - 4);
+            y = Math.max(1, Math.min(H - 1, y));
+            if (!drawn) { ctx.moveTo(x, y); drawn = true; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    });
 }
 
 function card() {
@@ -1585,7 +1639,7 @@ function netRow(type, iface, data, cliCount, country, isLast) {
             renderSignalHistory(_ulIfname, _sparkEl, _statsEl);
             container.appendChild(_sparkEl);
             container.appendChild(_statsEl);
-            var _linkCells = {};
+            var _linkCells = {}, _rssiCanvas = null;
             if (uplink.is_mlo && uplink.links && uplink.links.length) {
                 container.appendChild(sp('Per-link (WiFi 7)', 'display:block;color:#88888899;font-size:11px;font-weight:bold;letter-spacing:0.5px;margin:10px 0 4px'));
                 var ltbl = node('table', { style: 'width:100%;border-collapse:collapse;font-size:12px' });
@@ -1609,6 +1663,19 @@ function netRow(type, iface, data, cliCount, country, isLast) {
                     ltbl.appendChild(tr);
                 });
                 container.appendChild(ltbl);
+                container.appendChild(sp('Signal history per link', 'display:block;color:#88888899;font-size:11px;font-weight:bold;letter-spacing:0.5px;margin:10px 0 4px'));
+                _rssiCanvas = node('canvas', { width: '240', height: '40', style: 'display:block;border-radius:3px' });
+                var _rssiLegend = node('div', { style: 'display:flex;gap:10px;margin-top:3px' });
+                uplink.links.forEach(function(lk) {
+                    var freq = lk.freq || 0;
+                    var bandLabel = freq < 3000 ? '2.4G' : freq < 5950 ? '5G' : '6G';
+                    var color = freq < 3000 ? '#5b9bd5' : freq < 5950 ? '#4caf7d' : '#f5a623';
+                    _rssiLegend.appendChild(sp('— ' + bandLabel, 'font-size:11px;color:' + color + ';font-family:monospace'));
+                });
+                rssiMloPush(_ulIfname, uplink.links);
+                drawRssiSparkline(_rssiCanvas, _ulIfname, uplink.links);
+                container.appendChild(_rssiCanvas);
+                container.appendChild(_rssiLegend);
             }
             var _pollTimer = setInterval(function() {
                 if (!_sparkEl.isConnected) { clearInterval(_pollTimer); return; }
@@ -1625,6 +1692,8 @@ function netRow(type, iface, data, cliCount, country, isLast) {
                                           (rxP ? rxP.speed : (st.rx_bitrate || '—'));
                     renderSignalHistory(_ulIfname, _sparkEl, _statsEl);
                     if (st.links && st.links.length) {
+                        rssiMloPush(_ulIfname, st.links);
+                        if (_rssiCanvas) drawRssiSparkline(_rssiCanvas, _ulIfname, st.links);
                         st.links.forEach(function(lk) {
                             var cells = _linkCells[lk.link_id];
                             if (!cells) return;
@@ -1936,6 +2005,8 @@ function renderClients(data) {
         // Best speed
         var spd = bestClientSpeed(c);
         if (spd) hdrEl.appendChild(muted(spd));
+        var det = bestClientDetail(c);
+        if (det) hdrEl.appendChild(sp(det, 'font-size:11px;color:#555;font-family:monospace'));
 
         // Connected time
         if (c.connected_time) hdrEl.appendChild(muted(formatDuration(c.connected_time)));
@@ -2440,6 +2511,54 @@ function renderDiagnostics(diag) {
     el.appendChild(card(
         node('div', {}, lbl('Country'), node('div', { style: 'color:#ddd;font-size:16px;font-weight:bold;margin-top:2px' }, sysinfo.country || '—'))
     ));
+
+    // Wireless config backup/restore
+    (function() {
+        var _wcStatus = sp('', 'font-size:12px;color:#555;margin-left:8px');
+        var _wcFileIn = node('input', { type: 'file', accept: '.txt,.uci', style: 'display:none' });
+        var _wcDlBtn  = btnSecondary('Download backup', function() {
+            _wcStatus.textContent = 'Reading…';
+            layer2.wireless_backup().then(function(res) {
+                if (!res.ok) { _wcStatus.textContent = 'Error: read failed'; return; }
+                var d = new Date();
+                var fname = 'wireless-' + d.getFullYear() + '-' +
+                    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(d.getDate()).padStart(2, '0') + '.txt';
+                var blob = new Blob([res.data], { type: 'text/plain' });
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = fname;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                _wcStatus.textContent = 'Downloaded — ' + fname;
+            });
+        });
+        _wcDlBtn.style.cssText = 'font-size:12px;padding:3px 12px';
+        var _wcRestBtn = btnSecondary('Upload & Restore', function() { _wcFileIn.click(); });
+        _wcRestBtn.style.cssText = 'font-size:12px;padding:3px 12px';
+        _wcFileIn.addEventListener('change', function() {
+            var f = _wcFileIn.files && _wcFileIn.files[0];
+            if (!f) return;
+            _wcStatus.textContent = 'Uploading…';
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+                layer2.wireless_restore(ev.target.result).then(function(res) {
+                    _wcStatus.textContent = res.ok
+                        ? 'Restored — wifi reloading…'
+                        : 'Error: ' + (res.error || 'failed');
+                });
+            };
+            reader.readAsText(f);
+        });
+        el.appendChild(card(
+            sp('WIRELESS CONFIG', 'display:block;color:#88888899;font-size:11px;font-weight:bold;margin-bottom:10px;letter-spacing:0.5px'),
+            node('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
+                _wcFileIn, _wcDlBtn, _wcRestBtn, _wcStatus
+            ),
+            node('div', { style: 'color:#555;font-size:11px;margin-top:6px' },
+                'Before sysupgrade: download backup. After sysupgrade: upload & restore.')
+        ));
+    })();
 
     // Kernel
     if (sysinfo.kernel) {
