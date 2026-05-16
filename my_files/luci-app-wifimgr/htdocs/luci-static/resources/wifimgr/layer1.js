@@ -125,12 +125,12 @@ function parseIwDev(text) {
             continue;
         }
 
-        // Within a link block: channel or txpower (indented with 3+ tabs)
-        if (curLink !== null && (m = rawLine.match(/^\t{3,}channel\s+(.+)$/))) {
+        // Within a link block: channel or txpower (2 tabs + spaces or 3+ tabs)
+        if (curLink !== null && (m = rawLine.match(/^\t\t[\t ][\t ]*channel\s+(.+)$/))) {
             iface.mld_links[curLink].channel = m[1];
             continue;
         }
-        if (curLink !== null && (m = rawLine.match(/^\t{3,}txpower\s+(.+)$/))) {
+        if (curLink !== null && (m = rawLine.match(/^\t\t[\t ][\t ]*txpower\s+(.+)$/))) {
             iface.mld_links[curLink].txpower = m[1];
             continue;
         }
@@ -657,6 +657,16 @@ async function wpa_status(ifname) {
     }
 }
 
+async function wpa_bss(ifname, bssid) {
+    try {
+        const res = await fs.exec('/usr/sbin/wpa_cli', ['-i', ifname, 'bss', bssid]);
+        if (res.code !== 0) return mkErr('exec_failed');
+        return ok(parseKv(res.stdout));
+    } catch(e) {
+        return mkErr('exec_failed');
+    }
+}
+
 async function wpa_scan_results(ifname) {
     try {
         const res = await fs.exec('/usr/sbin/wpa_cli', ['-i', ifname, 'scan_results']);
@@ -946,6 +956,7 @@ const Layer1 = {
     iw_reg,
     // GROUP 5: wpa_cli
     wpa_status,
+    wpa_bss,
     wpa_scan_results,
     // GROUP 6: sysfs
     sysfs_read,
