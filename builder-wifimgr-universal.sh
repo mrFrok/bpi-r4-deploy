@@ -22,7 +22,7 @@ mv mtk-clone mtk-openwrt-feeds
 \cp -r my_files/999-fix-00-xfrm-sw-sa-offload-ok.patch mtk-openwrt-feeds/25.12/files/target/linux/mediatek/patches-6.12
 
 ### tx_power check Ivan Mironov's patch - for defective BE14 boards with defective eeprom flash
-#\cp -r my_files/100-wifi-mt76-mt7996-Use-tx_power-from-default-fw-if-EEP.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches
+\cp -r my_files/100-wifi-mt76-mt7996-Use-tx_power-from-default-fw-if-EEP.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches
 
 cd openwrt
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic prepare
@@ -54,6 +54,16 @@ chmod +x files/etc/uci-defaults/99-set-hostname
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
+
+# Luci-theme-argon
+git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+
+# fastfetch for openwrt
+git clone --depth 1 --branch master --single-branch --no-checkout https://github.com/muink/openwrt-fastfetch.git package/fastfetch
+pushd package/fastfetch
+umask 022
+git checkout
+popd
 
 \cp ../my_files/fit.sh package/utils/fitblk/files/fit.sh
 
