@@ -1686,7 +1686,7 @@ function netRow(type, iface, data, cliCount, country, isLast) {
             var prom = is_mld ? layer2.mld_remove(sid) : layer2.iface_remove(sid);
             if (isRelaydUplink) prom = prom.then(function() { return layer2.relayd_remove(); });
             if (isRepeaterSta) prom = prom.then(function() { return layer2.repeater_fw_remove(); });
-            return prom.then(function(r) { return Object.assign({ restartRequired: 'wifi' }, r); });
+            return prom.then(function(r) { return Object.assign({ restartRequired: 'reboot' }, r); });
         }, _onApplied);
     });
     removeBtn.style.cssText += ';padding:3px 8px;font-size:12px;flex-shrink:0';
@@ -1946,7 +1946,7 @@ function netRow(type, iface, data, cliCount, country, isLast) {
                 var prom = is_mld ? layer2.mld_remove(sid) : layer2.iface_remove(sid);
                 if (isRelaydUplink) prom = prom.then(function() { return layer2.relayd_remove(); });
                 if (isRepeaterSta) prom = prom.then(function() { return layer2.repeater_fw_remove(); });
-                return prom.then(function(r) { return Object.assign({ restartRequired: 'wifi' }, r); });
+                return prom.then(function(r) { return Object.assign({ restartRequired: 'reboot' }, r); });
             }, _onApplied);
         }));
         b.appendChild(btnBar);
@@ -2034,10 +2034,10 @@ function netRow(type, iface, data, cliCount, country, isLast) {
                     var rp = { channel: apChIn.value.trim() || 'auto', htmode: apHtIn.value };
                     return layer2.radio_set(apRadio.id, rp).then(function(rr) {
                         if (!rr.ok) return Object.assign({ restartRequired: 'none' }, rr);
-                        return ifaceProm.then(function(r) { return Object.assign({ restartRequired: r.ok ? 'wifi' : 'none' }, r); });
+                        return ifaceProm.then(function(r) { return Object.assign({ restartRequired: r.ok ? 'reboot' : 'none' }, r); });
                     });
                 }
-                return ifaceProm.then(function(r) { return Object.assign({ restartRequired: r.ok ? 'wifi' : 'none' }, r); });
+                return ifaceProm.then(function(r) { return Object.assign({ restartRequired: r.ok ? 'reboot' : 'none' }, r); });
             }, function() { editMode = false; delete _netExpandState[sid]; if (_onApplied) _onApplied(); });
         });
         b.appendChild(node('div', { style: 'display:flex;gap:8px;margin-top:10px' },
@@ -2066,7 +2066,7 @@ function netRow(type, iface, data, cliCount, country, isLast) {
             applyFlow(applyDiv, function() {
                 var prom = is_mld ? layer2.mld_remove(sid) : layer2.iface_remove(sid);
                 return prom.then(function(r) {
-                    return Object.assign({ restartRequired: 'wifi' }, r);
+                    return Object.assign({ restartRequired: 'reboot' }, r);
                 });
             }, function() {
                 if (_onApplied) _onApplied();
@@ -2252,19 +2252,18 @@ function renderRadios(data) {
         manual:    'Manual: enter dBm limits in the radio cards below, then click Apply here — mode and limits are saved in one step.'
     };
     var modeHintEl = sp(modeHints[curTxMode] || '', 'color:#555;font-size:11px;margin-bottom:8px;display:block');
-    var applyTxBtn = btn(curTxMode === 'manual' && !_pendingTxMode ? 'Apply' : 'Apply & Reboot', null, function() {
+    var applyTxBtn = btn('Apply & Reboot', null, function() {
         applyFlow(sysApplyDiv, function() {
             var mode = txModeSel.value;
             var modeChanged = mode !== curTxMode;
             if (!modeChanged && mode === 'manual') {
-                // Only dBm values changed — wifi reload is enough, no reboot needed
                 var txPromises = radioTxInputs
                     .filter(function(item) { return item.txIn.value.trim(); })
                     .map(function(item) { return layer2.radio_set(item.rid, { txpower: item.txIn.value.trim() }); });
-                if (!txPromises.length) return Promise.resolve({ ok: true, restartRequired: 'wifi', errors: [] });
+                if (!txPromises.length) return Promise.resolve({ ok: true, restartRequired: 'reboot', errors: [] });
                 return Promise.all(txPromises).then(function() {
                     _pendingTxMode = null;
-                    return { ok: true, restartRequired: 'wifi', errors: [] };
+                    return { ok: true, restartRequired: 'reboot', errors: [] };
                 });
             }
             return layer2.system_set_txpower_mode(mode).then(function(modeRes) {
@@ -2285,7 +2284,7 @@ function renderRadios(data) {
         var isManual = sel === 'manual';
         el.querySelectorAll('.txpower-manual-row').forEach(function(row) { row.style.display = isManual ? '' : 'none'; });
         modeHintEl.textContent = modeHints[sel] || '';
-        applyTxBtn.textContent = (!_pendingTxMode && curTxMode === 'manual') ? 'Apply' : 'Apply & Reboot';
+        applyTxBtn.textContent = 'Apply & Reboot';
     };
     el.appendChild(card(node('div', {},
         node('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px' },

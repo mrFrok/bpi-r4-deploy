@@ -227,7 +227,7 @@ async function radio_set(id, params) {
 
     // country → reboot required; ensure sku_idx='0' written alongside UNLESS efuse_max mode
     // (efuse_max requires sku_idx absent — writing '0' would silently switch back to regdb)
-    let restartRequired = 'wifi';
+    let restartRequired = 'reboot';
     if ('country' in write) {
         restartRequired = 'reboot';
         if (!('sku_idx' in write)) {
