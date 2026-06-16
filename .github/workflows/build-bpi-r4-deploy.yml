@@ -19,12 +19,12 @@ on:
         default: ''
       openwrt_commit:
         description: 'OpenWrt commit hash (leave empty to use build-versions.env)'
-        required: false
-        default: ''
+        required: true
+        default: '80d9abb3f7a498d31e133cad4c2e9b8da4a9494c'
       mtk_commit:
         description: 'MTK SDK commit hash (leave empty to use build-versions.env)'
-        required: false
-        default: ''
+        required: true
+        default: '3f8797ce3efcf0ed534ae2db21b2c06b405d714b'
 
 permissions:
   contents: write
