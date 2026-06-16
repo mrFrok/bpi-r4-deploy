@@ -1,51 +1,41 @@
-# OpenWrt + UniFi Stack for Banana Pi BPI-R4
+# OpenWrt + UniFi Stack for Banana Pi BPI-R4 & BPI-R4 Pro 8X
 
-> ⚠️ **This deploy stack is for Banana Pi BPI-R4 only. It cannot be used for BPI-R4 Pro.**
-> BPI-R4 Pro is a different board with a different NAND layout, different 10G hardware, and different device trees.
-> Flashing these images on a BPI-R4 Pro **will brick it**.
-
-Run **OpenWrt** on Banana Pi BPI-R4 (MT7988A, Wi-Fi 7) with an optional **UniFi Protect + UniFi Network Application** stack — a cost-effective alternative to the Ubiquiti UNVR + Cloud Gateway combo.
+Run **OpenWrt** on Banana Pi BPI-R4 and **BPI-R4 Pro 8X** (MT7988A, Wi-Fi 7) with an optional **UniFi Protect + UniFi Network Application** stack — a cost-effective alternative to the Ubiquiti UNVR + Cloud Gateway combo.
 
 Complete install system that runs entirely on GitHub — no Linux machine needed.
 
-> **Tested hardware:** Banana Pi R4 rev 1.0 (4GB) · Banana Pi R4 rev 1.1 (8GB) · UniFi G5 Flex camera · UniFi U7-LR WiFi 7 AP
+> **Tested hardware:** Banana Pi R4 rev 1.0 (4GB) · Banana Pi R4 rev 1.1 (8GB) · Banana Pi R4 Pro 8X · UniFi G5 Flex camera · UniFi U7-LR WiFi 7 AP
 
 ---
 
 ## Contents
 
 - [Board variants](#board-variants)
-- [What you get](#what-you-get)
 - [DIP switch reference](#dip-switch-reference)
-- [Part A — Install from ready-made release](#part-a--install-from-ready-made-release)
+- [Part A — BPI-R4: Install](#part-a--bpi-r4-install)
   - [Step 1 — Flash rescue SD card](#step-1--flash-rescue-sd-card)
-  - [Step 2 — Install NAND rescue system](#step-2--install-nand-rescue-system)
+  - [Step 2 — Install NAND system](#step-2--install-nand-system)
   - [Step 3 — Install OpenWrt to NVMe](#step-3--install-openwrt-to-nvme)
   - [Step 3 alternative — Install to eMMC](#step-3-alternative--install-to-emmc)
-  - [Sysupgrade](#sysupgrade)
-- [Part B — UniFi stack setup](#part-b--unifi-stack-setup)
-  - [What you need](#what-you-need)
-  - [Step 4 — Install NVMe UniFi variant](#step-4--install-nvme-unifi-variant)
-  - [Step 5 — Run UniFi Protect setup](#step-5--run-unifi-protect-setup)
-  - [Step 6 — First-time Protect configuration](#step-6--first-time-protect-configuration)
-  - [Step 7 — Run UniFi Network Application setup](#step-7--run-unifi-network-application-setup)
-  - [Step 8 — First-time Network Application configuration](#step-8--first-time-network-application-configuration)
-  - [Adding a camera](#adding-a-camera)
-  - [Adopting an Access Point](#adopting-an-access-point)
-- [Part C — Fork and customize](#part-c--fork-and-customize)
+- [Part B — BPI-R4: UniFi stack](#part-b--bpi-r4-unifi-stack)
+- [Part C — BPI-R4 Pro 8X: Install](#part-c--bpi-r4-pro-8x-install)
+  - [Step 1 — Flash SD card](#step-1--flash-sd-card-1)
+  - [Step 2 — Install NAND system](#step-2--install-nand-system-1)
+  - [Step 3 — Optional: Install to eMMC](#step-3--optional-install-to-emmc)
+  - [Step 4 — Install OpenWrt to NVMe](#step-4--install-openwrt-to-nvme)
+  - [Switching between NAND and NVMe](#switching-between-nand-and-nvme)
+- [Part D — BPI-R4 Pro 8X: UniFi stack](#part-d--bpi-r4-pro-8x-unifi-stack)
+- [Part E — Fork and customize](#part-e--fork-and-customize)
 - [Architecture](#architecture)
 - [NVMe partition layout](#nvme-partition-layout)
 - [Hardware notes](#hardware-notes)
 - [Known behaviors](#known-behaviors)
-- [Repository contents](#repository-contents)
 
 ---
 
 ## Board variants
 
-> ⚠️ **BPI-R4 Pro is a different board and is NOT supported.**
-> The BPI-R4 Pro has a different NAND partition layout, different 10G port hardware, and different device trees.
-> Flashing these images on a BPI-R4 Pro **will brick it**. This project supports **BPI-R4 only**.
+### BPI-R4
 
 | # | Variant | RAM | WiFi | Notes |
 |---|---------|-----|------|-------|
@@ -62,130 +52,93 @@ Complete install system that runs entirely on GitHub — no Linux machine needed
 
 > ⚠️ **UniFi variants (9, 10) require 8 GB RAM.** Running UniFi Network + Protect on 4 GB causes memory exhaustion.
 
----
+### BPI-R4 Pro 8X
 
-## What you get
-
-- **SD rescue image** — boot from SD card and install OpenWrt to NAND, eMMC, or NVMe.
-- **NVMe install** — OpenWrt permanently on NVMe SSD. Includes Docker and a dedicated data partition (p3) using all remaining disk space.
-- **eMMC install** — OpenWrt permanently on internal eMMC storage.
-- **NAND rescue** — minimal rescue system on NAND flash, used as base for NVMe and eMMC installs.
-- **Sysupgrade support** — update NVMe system directly from LuCI or command line.
-- **UniFi stack** (variants 9, 10) — UniFi Protect + UniFi Network Application running in Docker on NVMe.
+| Variant | RAM | WiFi | Notes |
+|---------|-----|------|-------|
+| Pro 8X WiFi | 8 GB | ✅ | BPI-R4 Pro 8X with WiFi 7 |
+| Pro 8X wired | 8 GB | ❌ | BPI-R4 Pro 8X, no WiFi |
 
 ---
 
 ## DIP switch reference
 
-| Boot medium  | SW3-A | SW3-B |
-|--------------|-------|-------|
-| SD card      | 0     | 0     |
-| NAND rescue  | 0     | 1     |
-| eMMC         | 1     | 0     |
+| Boot medium | A | B |
+|-------------|---|---|
+| SD card     | 1 | 1 |
+| NAND        | 0 | 1 |
+| eMMC        | 1 | 0 |
 
-> **NVMe boot** is controlled by U-Boot environment, not DIP switch. After running `install-nvme.sh`, the device boots from NVMe automatically — as long as DIP is set to **NAND** (SW3-A=0, SW3-B=1).
+> **NVMe boot** is controlled by U-Boot environment, not DIP switch. After running `install-nvme.sh`, the device boots from NVMe automatically — DIP stays at **NAND** (A=0, B=1) and is never changed again.
+
+> NAND and eMMC are fully functional permanent options. NVMe is recommended for larger storage needs — required for the UniFi stack.
 
 ---
 
-## Part A — Install from ready-made release
-
-No setup needed. Just follow the steps below.
+## Part A — BPI-R4: Install
 
 ### Step 1 — Flash rescue SD card
 
 1. Go to [Releases](https://github.com/woziwrt/bpi-r4-deploy/releases) and find **any release** — all releases contain the same SD rescue image `bpi-r4-rescue-sdcard.img.gz`.
 2. Download `bpi-r4-rescue-sdcard.img.gz`.
 3. Flash it to a microSD card using [Balena Etcher](https://etcher.balena.io/).
-4. Insert the SD card into BPI-R4, set DIP **SW3-A=0, SW3-B=0** (SD boot) and power on.
-5. Connect via SSH: `ssh root@192.168.1.1` (no password by default).
+4. Insert the SD card, set DIP **A=1, B=1** (SD boot) and power on.
+5. Connect via SSH: `ssh root@192.168.1.1` (no password).
 
 ---
 
-### Step 2 — Install NAND rescue system
+### Step 2 — Install NAND system
 
 Run from the SD card:
 
-```sh
-/root/bpi-r4-install/install-nand.sh
+```
+/root/install-dir/install-nand.sh
 ```
 
-The script will ask you to select your **RAM variant (4 GB or 8 GB)**. Select the one that matches your board.
+Select your **RAM variant (4 GB or 8 GB)**.
 
 After the script finishes:
 
-1. Power off BPI-R4.
-2. Set DIP **SW3-A=0, SW3-B=1** (NAND boot) and power on.
+1. Power off.
+2. Set DIP **A=0, B=1** (NAND boot) and power on.
 3. Connect via SSH: `ssh root@192.168.1.1`.
 
 ---
 
 ### Step 3 — Install OpenWrt to NVMe
 
-> ⚠️ **If you want both NVMe and eMMC:** Always run `install-emmc.sh` **before** `install-nvme.sh`. After NVMe installation, the device always boots from NVMe — eMMC installation will no longer be possible without manual intervention.
+> ⚠️ **If you want both NVMe and eMMC:** Run `install-emmc.sh` **before** `install-nvme.sh`. After NVMe installation the device always boots from NVMe.
 
-Make sure a network cable is connected, then run:
+Make sure a WAN cable is connected, then run:
 
-```sh
-/root/bpi-r4-install/install-nvme.sh
+```
+/root/install-dir/install-nvme.sh
 ```
 
-The script will ask you to select your **board variant** from a menu of 10 options.
+Select your **board variant** from the menu. The script checks NVMe health, downloads images (~150–240 MB), writes OpenWrt to NVMe and reboots automatically.
 
-Then the script will:
-- Check NVMe disk health (SMART).
-- Download required images from GitHub (~150–240 MB depending on variant).
-- Write OpenWrt to NVMe (p1: kernel, p2: rootfs, p3: data).
-- Set up automatic NVMe boot.
-- Reboot automatically.
-
-After reboot, BPI-R4 boots from NVMe. The SD card is no longer needed.
-
-> **Updating** — to update OpenWrt on NVMe, boot into NAND rescue (DIP SW3-A=0, SW3-B=1) and run `install-nvme.sh` again. Updates kernel and rootfs without touching data on p3.
+> **Updating** — to update OpenWrt on NVMe, boot into NAND (DIP A=0, B=1) and run `install-nvme.sh` again. Data on p3 is never touched.
 
 ---
 
 ### Step 3 alternative — Install to eMMC
 
-Instead of NVMe, install to internal eMMC. From the NAND rescue system, run:
-
-```sh
-/root/bpi-r4-install/install-emmc.sh
+```
+/root/install-dir/install-emmc.sh
 ```
 
-After installation:
-1. Power off BPI-R4.
-2. Set DIP **SW3-A=1, SW3-B=0** (eMMC boot) and power on.
+After installation set DIP **A=1, B=0** (eMMC boot) and power on.
 
 ---
 
-### Sysupgrade
-
-Once running from NVMe, update OpenWrt without any scripts:
-
-1. Find your variant's release (e.g. `release-8gb-standard`) and download `bpi-r4.itb` or `bpi-r4-poe.itb`.
-2. In LuCI, go to **System → Backup / Flash Firmware**.
-3. Under **Flash new firmware image**, upload the `.itb` file.
-4. Uncheck **Keep settings** for a clean install, or leave it checked to keep configuration.
-5. Click **Flash image** and confirm.
-
-BPI-R4 updates kernel and rootfs and reboots automatically. Data on p3 is never touched.
-
----
-
-## Part B — UniFi stack setup
+## Part B — BPI-R4: UniFi stack
 
 ### What you need
 
-- Banana Pi R4 **8 GB RAM** (rev 1.2+ recommended — see [Hardware notes](#hardware-notes))
+- BPI-R4 **8 GB RAM** (rev 1.2+ recommended)
 - NVMe SSD, minimum 500 GB (1 TB recommended for Continuous Recording)
-- microSD card (temporary, 1 GB or larger)
-- Ethernet cable (internet access required during installation)
-- UniFi camera (G5 Flex tested)
-- UniFi Access Point (U7-LR WiFi 7 tested)
-- PoE switch or injector for the AP
+- UniFi camera (G5 Flex tested) · UniFi AP (U7-LR WiFi 7 tested)
 - A [Ubiquiti account](https://account.ui.com) (optional — required only for Remote Access)
-
-UniFi services will be available at:
 
 | Service | Address |
 |---------|---------|
@@ -197,160 +150,249 @@ UniFi services will be available at:
 
 ### Step 4 — Install NVMe UniFi variant
 
-Follow Part A Steps 1–2 (SD card + NAND rescue). Then run:
+Follow Steps 1–2 above, then run:
 
-```sh
-/root/bpi-r4-install/install-nvme.sh
+```
+/root/install-dir/install-nvme.sh
 ```
 
-Select variant **9** (8GB wired UniFi) or **10** (8GB PoE wired UniFi) — the script handles everything automatically.
-
-The script downloads and installs OpenWrt with the UniFi stack prerequisites (Docker, cgroups, macvlan/dummy kernel modules). NVMe is partitioned as follows:
-
-| Partition | Size | Purpose |
-|-----------|------|---------|
-| p1 | 255 MB | Boot |
-| p2 | 448 MB | Root filesystem |
-| p3 | 30 GB | Docker data |
-| p4 | remainder | Protect storage |
-
-After reboot, connect via SSH: `ssh root@192.168.1.1`.
+Select variant **9** (8GB wired UniFi) or **10** (8GB PoE wired UniFi).
 
 ---
 
 ### Step 5 — Run UniFi Protect setup
 
-```sh
+> ⚠️ **Run from SSH terminal only — not from LuCI terminal (ttyd).** The script modifies the firewall and a ttyd session will be interrupted.
+
+```
 cd /mnt/nvme0n1p3
 sh unifi-setup.sh
 ```
 
-The script will:
-- Configure Docker and hostname
-- Reconfigure uhttpd (LuCI moves to port 8080)
-- Set up firewall rules for Protect
-- Create `enp0s2` macvlan and `enp0s1` dummy interfaces
-- Download autostart scripts
-- Install WAN hotplug handler
-- Load the Protect Docker image (download ~2 GB or use local file)
-- Create storage structure and start Protect
-
-> ⚠️ When prompted, **disconnect the internet cable** before pressing Enter. This is required for first-time Protect setup.
+> ⚠️ When prompted, **disconnect the WAN cable** before pressing Enter.
 
 ---
 
 ### Step 6 — First-time Protect configuration
 
-1. Open `https://192.168.1.1` in your browser.
-2. Accept the SSL warning (self-signed certificate — expected).
-3. On the **No Internet Detected** screen, choose **Other Configuration Options → Local Network → Set Up Console Offline**.
-4. Enter a name for your console (e.g. `BPI-R4-UniFi`) and click **Next**.
-5. Set a password and click **Finish**.
-6. Wait for **Setup Complete!** and click **Go to Dashboard**.
+1. Open `https://192.168.1.1`.
+2. Accept the SSL warning (self-signed certificate).
+3. **Other Configuration Options → Local Network → Set Up Console Offline**.
+4. Enter a console name, set a password, click **Finish**.
 
-**Immediately after first login — disable auto-updates:**
-
-Go to **Settings (gear icon) → Control Plane → Updates** and disable all Auto-Update options.
-
-> ⚠️ Leaving auto-update enabled risks breaking the installation with an incompatible version.
+**Immediately disable auto-updates: Settings → Control Plane → Updates.**
 
 ---
 
 ### Step 7 — Run UniFi Network Application setup
 
-Reconnect the internet cable, then:
+Reconnect the WAN cable, then:
 
-```sh
+```
 cd /mnt/nvme0n1p3
 sh unifi-network-setup.sh
 ```
-
-The script will:
-- Move LuCI to port 8081 (freeing 8080 for Network Application)
-- Set up `enp0s3` macvlan interface at `192.168.1.2`
-- Configure nftables firewall rules for Docker bridge networks
-- Create 2 GB swap file on p3
-- Pull and start Network Application + MongoDB containers
 
 ---
 
 ### Step 8 — First-time Network Application configuration
 
-1. Open `https://192.168.1.2:8443` in your browser.
-2. Accept the SSL warning.
-3. Complete the setup wizard.
-4. Go to **Settings → System** and disable auto-updates.
+1. Open `https://192.168.1.2:8443`.
+2. Complete the setup wizard.
+3. **Settings → System** — disable auto-updates.
 
 ---
 
 ### Adding a camera
 
-1. Connect the camera via ethernet to a LAN port and power it on.
-2. Perform a hardware reset (hold reset button until LED changes).
-3. In the Protect dashboard → **Devices** — the camera should appear and can be adopted.
-4. Camera status dot turns green — camera is online.
+1. Connect the camera to a LAN port and power it on.
+2. Hardware reset (hold reset button until LED changes).
+3. Protect dashboard → **Devices** — camera appears for adoption.
 
 ---
 
 ### Adopting an Access Point
 
-After factory reset, the AP will auto-discover the Network Application via DNS (`unifi` → `192.168.1.2`) — this is configured automatically by the setup script. The AP should appear in the Network Application as "Pending adoption" within a minute.
+After factory reset the AP auto-discovers the Network Application via DNS (`unifi` → `192.168.1.2`). It appears as "Pending adoption" within a minute.
 
-If auto-discovery does not work (older firmware), use SSH set-inform as a fallback:
+If auto-discovery fails (older firmware):
 
-```sh
+```
 ssh ubnt@<AP_IP> "/usr/bin/syswrapper.sh set-inform http://192.168.1.2:8080/inform"
 ```
 
-`<AP_IP>` is visible in LuCI: `http://192.168.1.1:8081` → Network → DHCP Leases
-
-Default credentials after factory reset: `ubnt` / `ubnt`
-
-Once adopted, the AP remembers the controller address and reconnects automatically after reboots.
+`<AP_IP>` visible in LuCI (`http://192.168.1.1:8081`) → Network → DHCP Leases. Default credentials: `ubnt` / `ubnt`
 
 ---
 
-## Part C — Fork and customize
+## Part C — BPI-R4 Pro 8X: Install
+
+BPI-R4 Pro 8X uses a different SoC configuration, NAND layout, and device trees than the standard BPI-R4. **Pro 8X images are not compatible with standard BPI-R4 and vice versa.**
+
+### What you need
+
+- BPI-R4 Pro 8X board
+- **NVMe SSD in slot CN14 (M-key), minimum 512 GB** — tested with Patriot P300 512 GB. CN15 and CN18 are B-key slots for LTE modems, not NVMe.
+- microSD card (temporary, for install only)
+- For WAN and LAN connectivity: SFP or SFP copper modules are recommended
+
+---
+
+### Step 1 — Flash SD card
+
+1. Go to [Releases](https://github.com/woziwrt/bpi-r4-deploy/releases) and download the SD card image from **release-pro-8x-wired** or **release-pro-8x-standard**:
+   `openwrt-mediatek-filogic-bananapi_bpi-r4-pro-8x-sdcard.img.gz`
+2. Flash to a microSD card using [Balena Etcher](https://etcher.balena.io/).
+3. Insert SD card, set DIP **A=1, B=1** (SD boot) and power on.
+4. Connect via SSH: `ssh root@192.168.1.1` (no password).
+
+---
+
+### Step 2 — Install NAND system
+
+Connect the WAN cable, then run:
+
+```
+/root/install-dir/install-nand.sh
+```
+
+After the script finishes:
+
+1. Power off.
+2. Set DIP **A=0, B=1** (NAND boot) and power on.
+3. Connect via SSH: `ssh root@192.168.1.1`.
+
+---
+
+### Step 3 — Optional: Install to eMMC
+
+> ⚠️ **Run this before `install-nvme.sh`.** After NVMe installation the device always boots from NVMe.
+
+```
+/root/install-dir/install-emmc.sh
+```
+
+Select **1** (Pro 8X WiFi) or **2** (Pro 8X wired).
+
+After installation set DIP **A=1, B=0** (eMMC boot) to use eMMC, or keep DIP at A=0, B=1 and continue with NVMe install.
+
+---
+
+### Step 4 — Install OpenWrt to NVMe
+
+From the NAND system, connect the WAN cable and run:
+
+```
+/root/install-dir/install-nvme.sh
+```
+
+Select **1** (Pro 8X WiFi) or **2** (Pro 8X wired).
+
+The script checks NVMe health, downloads images (~150 MB), writes OpenWrt to NVMe and reboots automatically.
+
+**After reboot the router boots from NVMe.** DIP stays at A=0, B=1 permanently — this is correct.
+
+---
+
+### Switching between NAND and NVMe
+
+```
+boot-nand    # switch to NAND on next reboot
+boot-nvme    # switch back to NVMe on next reboot
+```
+
+---
+
+## Part D — BPI-R4 Pro 8X: UniFi stack
+
+Pro 8X wired is ideal for running the UniFi stack — 8 GB RAM, NVMe storage, and no onboard WiFi interference.
+
+### What you need
+
+- BPI-R4 Pro 8X (wired variant recommended)
+- NVMe SSD in slot CN14, **minimum 512 GB** (1 TB recommended for Continuous Recording)
+- UniFi camera (G5 Flex tested) · UniFi AP (U7-LR WiFi 7 tested)
+- A [Ubiquiti account](https://account.ui.com) (optional — required only for Remote Access)
+
+| Service | Address |
+|---------|---------|
+| UniFi Protect | `https://192.168.1.1` |
+| UniFi Network Application | `https://192.168.1.1:8443` |
+| LuCI | `http://192.168.1.1:8080` |
+
+---
+
+### Step 4 — Install NVMe UniFi variant
+
+Follow Part C Steps 1–2, then run:
+
+```
+/root/install-dir/install-nvme-unifi.sh
+```
+
+Select **1** (Pro 8X WiFi) or **2** (Pro 8X wired).
+
+---
+
+### Step 5 — Run UniFi Protect setup
+
+> ⚠️ **Run from SSH terminal only — not from LuCI terminal (ttyd).** The script modifies the firewall and a ttyd session will be interrupted.
+
+```
+sh /mnt/nvme0n1p3/unifi-setup.sh
+```
+
+When asked to download or use a local file — select **[1] Download**. The script downloads the Docker image (~660 MB) and loads it automatically.
+
+> ⚠️ When prompted, **disconnect the WAN cable** before pressing Enter.
+
+---
+
+### Step 6 — First-time Protect configuration
+
+1. Open `https://192.168.1.1`.
+2. Accept the SSL warning (self-signed certificate).
+3. **Other Configuration Options → Local Network → Set Up Console Offline**.
+4. Enter a console name, set a password, click **Finish**.
+
+**Immediately disable auto-updates: Settings → General → Auto Update.**
+
+---
+
+### Step 7 — Run UniFi Network Application setup
+
+Reconnect the WAN cable, then:
+
+```
+sh /mnt/nvme0n1p3/unifi-network-setup.sh
+```
+
+---
+
+### Step 8 — First-time Network Application configuration
+
+1. Open `https://192.168.1.1:8443`.
+2. Complete the setup wizard.
+3. **Settings → System** — disable auto-updates.
+
+---
+
+### Adding a camera and Access Point
+
+Same procedure as Part B — see [Adding a camera](#adding-a-camera) and [Adopting an Access Point](#adopting-an-access-point).
+
+---
+
+## Part E — Fork and customize
 
 Fork this repository to build your own customized release.
 
-### Step 1 — Fork the repository
+1. Fork on GitHub. **Do not rename the fork** — it must stay named `bpi-r4-deploy`.
+2. Go to **Settings → Actions → General** → set **Workflow permissions** to **Read and write**.
+3. Go to **Actions → Build BPI-R4 Pro 8X → Run workflow**, select **Pro-8X-wifi** or **Pro-8X-wired**.
+4. After ~2 hours, releases appear in your fork.
 
-Fork this repository on GitHub. **Do not rename the fork** — it must stay named `bpi-r4-deploy`, otherwise the install scripts will not find your release.
-
-### Step 2 — Enable workflows and set permissions
-
-1. Go to the **Actions** tab in your fork and enable workflows.
-2. Open **Settings → Actions → General** and set:
-   - **Actions permissions**: Allow all actions and reusable workflows.
-   - **Workflow permissions**: **Read and write permissions** — required to create releases.
-
-> ⚠️ Without **Read and write permissions** the workflow will fail when trying to create a release.
-
-### Step 3 — Customize packages
-
-1. Open `my_defconfig-universal` or `my_defconfig-wired-universal` depending on your variant.
-2. Edit lines like:
-   ```
-   CONFIG_PACKAGE_iperf3=y
-   # CONFIG_PACKAGE_htop is not set
-   ```
-   - `=y` → package enabled
-   - `is not set` → package disabled
-3. **Only change lines starting with `CONFIG_PACKAGE_`.** Do not touch kernel, target, or MTK SDK options.
-
-### Step 4 — Trigger a build
-
-1. Go to the **Actions** tab in your fork.
-2. Select **Build BPI-R4 Deploy**.
-3. Click **Run workflow**:
-   - **standard** — builds all WiFi variants (4GB + 8GB, standard + PoE) → 4 releases.
-   - **wired** — builds all wired variants (4GB + 8GB, standard + PoE + UniFi) → 6 releases.
-4. After the workflow finishes (~2 hours), releases will be created in your fork.
-
-### Step 5 — Install from your fork
-
-When running `install-nvme.sh` or `install-emmc.sh`, select option **[2] My fork** and enter your GitHub username.
+To install from your fork, edit `GH_USER` at the top of the install scripts.
 
 ---
 
@@ -358,12 +400,10 @@ When running `install-nvme.sh` or `install-emmc.sh`, select option **[2] My fork
 
 | Component | Role |
 |-----------|------|
-| BPI-R4 | Routing, firewall, Docker runtime, NVMe storage |
+| BPI-R4 / Pro 8X | Routing, firewall, Docker runtime, NVMe storage |
 | UniFi Protect | Camera management ([dciancu](https://github.com/dciancu/unifi-protect-unvr-docker-arm64) Docker image) |
 | UniFi Network Application | WiFi management (linuxserver Docker image) |
 | UniFi AP | Professional WiFi (U7-LR WiFi 7 tested) |
-
-This deliberately avoids the known signal/noise issues of the BPI-R4's onboard BE14 WiFi module while delivering enterprise-grade WiFi through a proper UniFi AP.
 
 ---
 
@@ -371,10 +411,9 @@ This deliberately avoids the known signal/noise issues of the BPI-R4's onboard B
 
 | Partition | Size | Purpose |
 |-----------|------|---------|
-| p1 | 255 MB | Boot |
-| p2 | 448 MB | Root filesystem |
-| p3 | 30 GB (dev) / 15 GB (prod) | Docker data |
-| p4 | remainder | Protect storage (Continuous Recording requires 100 GB+) |
+| p1 | 256 MB | Boot (kernel) |
+| p2 | 512 MB | Root filesystem |
+| p3 | remainder | Data / Docker / UniFi storage |
 
 ---
 
@@ -384,12 +423,12 @@ This deliberately avoids the known signal/noise issues of the BPI-R4's onboard B
 
 | Issue | Details |
 |-------|---------|
-| NVMe + SFP conflict | Some NVMe disks pull down the I2C bus, disabling SFP ports and other I2C devices |
+| NVMe + SFP conflict | Some NVMe disks pull down the I2C bus, disabling SFP ports |
 | Affected disks | Chinese OEM NVMe drives (e.g. generic 128 GB) |
-| Not affected | Samsung EVO series — SFP ports remain functional |
-| Fixed in | Rev 1.2+ — Sinovoip resolved the I2C/NVMe conflict in hardware |
+| Not affected | Samsung EVO series |
+| Fixed in | Rev 1.2+ |
 
-For new builds, **BPI-R4 8 GB RAM rev 1.2+** is recommended — NVMe and SFP ports work simultaneously and 8 GB RAM provides headroom for Docker workloads.
+For new builds, **BPI-R4 8 GB RAM rev 1.2+** is recommended.
 
 ---
 
@@ -397,45 +436,30 @@ For new builds, **BPI-R4 8 GB RAM rev 1.2+** is recommended — NVMe and SFP por
 
 ### Boot time
 
-After a cold boot or reboot, allow approximately **4–5 minutes** for the router to become fully operational. During this time, brief connectivity interruptions are normal — Docker containers, UniFi Protect, and UniFi Network Application initialize sequentially and each triggers a firewall reload. This is expected behavior.
+After a cold boot or reboot, allow approximately **4–5 minutes** for the router to become fully operational.
 
-Approximate timeline after boot:
+Approximate timeline:
 - ~1 min — router reachable via SSH/LuCI
 - ~3 min — UniFi Protect available
 - ~8–10 min — UniFi Network Application fully initialized
 
 ### WAN reconnect
 
-When WAN goes down and comes back up, OpenWrt performs a `fw4 reload` which clears custom nftables rules required by the Docker bridge network. The installed hotplug handler (`99-docker-nft`) restores these rules automatically — no reboot needed.
+When WAN goes down and comes back up, the installed hotplug handler (`99-docker-nft`) restores Docker nftables rules automatically — no reboot needed.
 
-> UniFi Protect is not affected — it runs with `network_mode: host` and does not depend on bridge nftables rules.
+### NAND first boot — UBI messages
+
+On the very first boot into the NAND system, U-Boot may print messages like:
+
+```
+UBI: Bad EC magic in block XXXX
+```
+
+This is normal — U-Boot is initializing the NAND flash. The messages disappear on subsequent boots.
 
 ### GitHub runner disk space
 
-This workflow runs on GitHub-hosted runners where free disk space is not guaranteed. If a build fails with a disk-related error, re-run the workflow — runners with sufficient space are usually available shortly.
-
----
-
-## Repository contents
-
-| File / Directory | Description |
-|------------------|-------------|
-| `builder-universal.sh` | Build script for all WiFi variants |
-| `builder-wired-universal.sh` | Build script for all wired variants (includes Docker/UniFi prerequisites) |
-| `my_defconfig-universal` | Package config for WiFi builds |
-| `my_defconfig-wired-universal` | Package config for wired builds |
-| `my_files/` | Patches, custom files, install scripts |
-| `rescue/bpi-r4-rescue-sdcard.img.gz` | Static rescue SD card image (same for all variants) |
-| `unifi/` | UniFi stack scripts (distributed in UniFi releases) |
-| `.github/workflows/build-bpi-r4-deploy.yml` | Build workflow |
-
-### Telit/Cinterion modem LuCI extensions
-
-All builds include LuCI extensions for Telit/Cinterion LTE/5G modules (FN980/FN990 family). These are harmless if you don't have these modules — two extra entries appear in the LuCI menu but do nothing. To remove them:
-
-```sh
-apk del luci-app-modemdata luci-app-sms-tool-js luci-app-lite-watchdog
-```
+If a build fails with a disk-related error, re-run the workflow — runners with sufficient space are usually available shortly.
 
 ---
 
@@ -446,16 +470,6 @@ apk del luci-app-modemdata luci-app-sms-tool-js luci-app-lite-watchdog
 <img width="1264" height="1080" alt="LuCI dashboard" src="https://github.com/user-attachments/assets/ae709b45-ad2a-44ff-ab7b-73b9d5f1d6d9" />
 
 <img width="1264" height="1080" alt="UniFi camera view" src="https://github.com/user-attachments/assets/b6ce49af-bd91-4a67-87b2-c77ee121f051" />
-
-<img width="1264" height="1080" alt="UniFi device list" src="https://github.com/user-attachments/assets/ae709b45-ad2a-44ff-ab7b-73b9d5f1d6d9" />
-
-<img width="660" height="1434" alt="BPI-R4 hardware" src="https://github.com/user-attachments/assets/aac7b973-ccdf-469f-b027-d8755032469c" />
-
-<img width="660" height="1434" alt="BPI-R4 setup" src="https://github.com/user-attachments/assets/a703787d-9e16-4195-b495-65b1b4334ca6" />
-
-<img width="660" height="1434" alt="BPI-R4 with camera" src="https://github.com/user-attachments/assets/a703787d-9e16-4195-b495-65b1b4334ca6" />
-
-<img width="660" height="1434" alt="BPI-R4 UniFi stack" src="https://github.com/user-attachments/assets/be266889-b238-4aba-b3b7-53dba31d7e86" />
 
 ---
 
