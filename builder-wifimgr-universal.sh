@@ -27,7 +27,7 @@ git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwr
 \cp -r my_files/0264-wpa_s-add-btwt-join-command.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/network/services/hostapd/patches/0264-wpa_s-add-btwt-join-command.patch
 
 ### tx_power check Ivan Mironov's patch - for defective BE14 boards with defective eeprom flash
-#\cp -r my_files/100-wifi-mt76-mt7996-Use-tx_power-from-default-fw-if-EEP.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches
+\cp -r my_files/100-wifi-mt76-mt7996-Use-tx_power-from-default-fw-if-EEP.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches
 
 ### per-band WiFi LED (MT7996, single-wiphy MLO) + shared tpt trigger - HW verified 2026-06-28
 \cp -r my_files/999-wifi-01-mt7996-per-band-leds.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches/9999-w-mt7996-per-band-leds.patch
@@ -114,14 +114,37 @@ chmod -R 755 feeds/luci/applications/luci-app-sms-tool-js/root
 chmod -R 755 feeds/packages/utils/modemdata/files/usr/share
 
 \cp -r ../configs/my_defconfig-wifimgr-universal .config
+
+git clone --depth 1 --branch master --single-branch --no-checkout https://github.com/muink/openwrt-fastfetch.git package/fastfetch
+pushd package/fastfetch
+umask 022
+git checkout
+popd
+
+git clone https://github.com/ChesterGoodiny/luci-theme-proton2025 package/luci-theme-proton2025
+./scripts/feeds update -a && ./scripts/feeds install -a
+
 make defconfig
 
 echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-emmc-comb-4bg=y" >> .config
 echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-sdmmc-comb-4bg=y" >> .config
 echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg=y" >> .config
 
+echo "CONFIG_PACKAGE_fastfetch=y" >> .config
+echo "CONFIG_PACKAGE_fish=y" >> .config
+echo "CONFIG_PACKAGE_luci-theme-proton2025=y" >> .config
+echo "CONFIG_LUCI_THEME_DEFAULT=\"proton2025\"" >> .config
+echo "CONFIG_PACKAGE_adguardhome=y" >> .config
+echo "CONFIG_PACKAGE_xray-core=y" >> .config
+echo "CONFIG_PACKAGE_sing-box=y" >> .config
+echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
+echo "CONFIG_PACKAGE_kmod-nft-conntrack=y" >> .config
+echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
+
 ### OpenWrt SDK (per-target = covers all variants incl. Pro 8X) - published as release-sdk
 echo "CONFIG_SDK=y" >> .config
+
+make olddefconfig
 
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic build
 
