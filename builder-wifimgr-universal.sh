@@ -144,7 +144,7 @@ echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
 ### OpenWrt SDK (per-target = covers all variants incl. Pro 8X) - published as release-sdk
 echo "CONFIG_SDK=y" >> .config
 
-make olddefconfig
+make defconfig
 
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic build
 
