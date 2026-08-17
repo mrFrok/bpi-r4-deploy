@@ -141,6 +141,7 @@ echo "CONFIG_PACKAGE_adguardhome=y" >> .config
 echo "CONFIG_PACKAGE_xray-core=y" >> .config
 echo "CONFIG_PACKAGE_sing-box=y" >> .config
 echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
+echo "CONFIG_PACKAGE_kmod-nft-socket=y" >> .config
 echo "CONFIG_PACKAGE_kmod-nft-conntrack=y" >> .config
 echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
 
