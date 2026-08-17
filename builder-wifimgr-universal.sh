@@ -1,10 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-# BUMP 2026-07-06 (main migration; predchozi git01 base: 13f39a74):
-#   OpenWrt:  6dead2869209f4ff9825f3169c129c5ef04f6273  (openwrt-25.12 HEAD, BEZE ZMENY)
-#   MTK SDK:  822c2f0603614e47ec8496571043431494fd2841  (MAIN HEAD; git01 mrazi -> MTK doporucil main)
-OPENWRT_COMMIT=${OPENWRT_COMMIT:-6dead2869209f4ff9825f3169c129c5ef04f6273}
+# BUMP 2026-08-06 (sync s lab universal-new — 4. router / easymesh package
+# vyvoj potrebuje IDENTICKY zaklad jako lab; predchozi base 2026-07-06:
+# OpenWrt 6dead286 / MTK 822c2f06):
+#   OpenWrt:  4d0fec5a4845ba166203a782d08217b3f1cf2af9  (openwrt-25.12)
+#   MTK SDK:  3a4e2a2511af93cea1ca43205a02362423882b7c  (main)
+OPENWRT_COMMIT=${OPENWRT_COMMIT:-4d0fec5a4845ba166203a782d08217b3f1cf2af9}
 
 rm -rf openwrt
 rm -rf mtk-openwrt-feeds
@@ -13,8 +15,9 @@ git clone --branch openwrt-25.12 https://git.openwrt.org/openwrt/openwrt.git ope
 cd openwrt; git checkout ${OPENWRT_COMMIT}; cd -;
 
 # 2026-07-06: migrated git01 -> main (git01 frozen; MTK recommends main). Single source of truth.
+# 2026-08-06: bump to the lab universal-new pin (see header).
 git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwrt-feeds
-( cd mtk-openwrt-feeds && git checkout 822c2f0603614e47ec8496571043431494fd2841 )
+( cd mtk-openwrt-feeds && git checkout 3a4e2a2511af93cea1ca43205a02362423882b7c )
 
 
 \cp -r my_files/999-sfp-10-additional-quirks.patch mtk-openwrt-feeds/25.12/files/target/linux/mediatek/patches-6.12

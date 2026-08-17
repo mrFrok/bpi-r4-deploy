@@ -1,6 +1,6 @@
 # Build base (default when no commit inputs given) — keep in sync with the builder scripts:
-#   OpenWrt:  6dead2869209f4ff9825f3169c129c5ef04f6273  (openwrt-25.12 HEAD, 2026-06-28)
-#   MTK SDK:  13f39a7448764466f0ab5eb290fdefd9a9d2335b  (github git01 HEAD, 2026-06-28)
+#   OpenWrt:  4d0fec5a4845ba166203a782d08217b3f1cf2af9  (openwrt-25.12, lab sync 2026-08-06)
+#   MTK SDK:  3a4e2a2511af93cea1ca43205a02362423882b7c  (main, lab sync 2026-08-06)
 # Bumped 2026-06-28, HW verified on both routers (prev base 7b8ce1e / 42c9ff = 6.12.93).
 name: Build BPI-R4 Deploy
 

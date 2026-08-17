@@ -2,18 +2,18 @@
 set -euo pipefail
 
 # BUMP 2026-07-06 (main migration; predchozi git01 base: 13f39a74):
-#   OpenWrt:  6dead2869209f4ff9825f3169c129c5ef04f6273  (openwrt-25.12 HEAD, BEZE ZMENY)
-#   MTK SDK:  822c2f0603614e47ec8496571043431494fd2841  (MAIN HEAD; git01 mrazi -> MTK doporucil main)
+#   OpenWrt:  4d0fec5a4845ba166203a782d08217b3f1cf2af9  (openwrt-25.12; lab sync 2026-08-06)
+#   MTK SDK:  3a4e2a2511af93cea1ca43205a02362423882b7c  (main; lab sync 2026-08-06)
 
 rm -rf openwrt
 rm -rf mtk-openwrt-feeds
 
 git clone --branch openwrt-25.12 https://git.openwrt.org/openwrt/openwrt.git openwrt
-cd openwrt; git checkout ${OPENWRT_COMMIT:-6dead2869209f4ff9825f3169c129c5ef04f6273}; cd -;
+cd openwrt; git checkout ${OPENWRT_COMMIT:-4d0fec5a4845ba166203a782d08217b3f1cf2af9}; cd -;
 
 # 2026-07-06: migrated git01 -> main (git01 frozen; MTK recommends main). Single source of truth.
 git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwrt-feeds
-( cd mtk-openwrt-feeds && git checkout 822c2f0603614e47ec8496571043431494fd2841 )
+( cd mtk-openwrt-feeds && git checkout 3a4e2a2511af93cea1ca43205a02362423882b7c )
 
 #\cp -r my_files/feed_revision mtk-openwrt-feeds/autobuild/unified/
 
