@@ -129,10 +129,6 @@ git clone https://github.com/ChesterGoodiny/luci-theme-proton2025 package/luci-t
 
 make defconfig
 
-echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-emmc-comb-4bg=y" >> .config
-echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-sdmmc-comb-4bg=y" >> .config
-echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg=y" >> .config
-
 echo "CONFIG_PACKAGE_fastfetch=y" >> .config
 echo "CONFIG_PACKAGE_fish=y" >> .config
 echo "CONFIG_PACKAGE_luci-theme-proton2025=y" >> .config
@@ -149,6 +145,14 @@ echo "CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y" >> .config
 echo "CONFIG_SDK=y" >> .config
 
 make defconfig
+
+# The mt7988 *-comb-4bg ATF variants are HIDDEN packages (no kconfig prompt) and
+# nothing selects them, so any defconfig run drops a manually set =y. They must be
+# appended AFTER the last defconfig, or the 8GB BL2 images are never built and the
+# 8gb image recipes die with "mt7988-emmc-comb-4bg-bl2.img: No such file or directory".
+echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-emmc-comb-4bg=y" >> .config
+echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-sdmmc-comb-4bg=y" >> .config
+echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg=y" >> .config
 
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic build
 
