@@ -4,8 +4,9 @@
 'use strict';
 'require baseclass';
 'require wifimgr/layer2 as layer2';
+'require wifimgr/mesh-backhaul as meshbh';
 
-// Layer 3: wizard orchestration. Calls Layer 2 only.
+// Layer 3: wizard orchestration. Calls Layer 2 + mesh feature modules.
 // Wizards make all UCI changes then fire system_apply.
 // The view handles progress UI by polling layer2.system_apply_poll() independently.
 
@@ -201,6 +202,122 @@ async function wizard_country(country) {
     return { ok: true, restartRequired: 'reboot', errors: [] };
 }
 
+// --- MESH wizards ---
+// Compose role + backhaul + roaming into one "turn on mesh" action.
+// All wifi config changes require a full reboot (MLO stack).
+
+// Controller: set role, bring up the WDS backhaul AP on 5G, enable roaming.
+async function wizard_mesh_controller(radio_id, params) {
+    const { clientSsid, clientKey } = params || {};
+
+    // validate BEFORE any change — empty inputs must fail clean, never half-configure
+    if (!clientSsid || !clientKey)
+        return { ok: false, sid: null, restartRequired: 'none',
+                 errors: ['Mesh network name and password are required.'] };
+
+    // idempotence: refuse if mesh is already active. A second enable would add a
+    // duplicate backhaul -> L2 loop -> broadcast storm (2026-07-10 incident).
+    const cur = await layer2.mesh_role_get();
+    if (cur.ok && cur.data)
+        return { ok: false, sid: null, restartRequired: 'none',
+                 errors: ['Mesh is already active as ' + cur.data + '. Disable it first.'] };
+
+    // safeguard: snapshot wireless config so a failed setup can be rolled back
+    const bak = await layer2.wireless_backup();
+    const backup = bak && bak.ok ? bak.data : null;
+
+    const roleRes = await layer2.mesh_role_set('controller');
+    if (!roleRes.ok) return { ok: false, sid: null, restartRequired: 'none', errors: ['mesh_role_set failed'] };
+
+    // extender backend: controller enables WDS on the existing serving MLD
+    // (SSID/key come from that MLD; agents join it). Non-disruptive.
+    const apRes = await meshbh.backhaul_setup('controller');
+    if (!apRes.ok) {
+        await layer2.mesh_role_set('');                 // rollback role
+        if (backup) await layer2.wireless_restore(backup);   // rollback wireless config
+        return { ok: false, sid: null, restartRequired: 'none', errors: apRes.errors || [] };
+    }
+
+    // mesh client APs (tri-band 2.4+6 GHz, one roaming SSID; 11k/v for usteer)
+    const capRes = await meshbh.client_ap_setup(clientSsid, clientKey);
+    if (!capRes.ok) {
+        await layer2.mesh_role_set('');
+        if (backup) await layer2.wireless_restore(backup);
+        return { ok: false, sid: null, restartRequired: 'none', errors: capRes.errors || [] };
+    }
+
+    await meshbh.save_client_ssid(clientSsid);           // remember for disable teardown
+    await layer2.roam_start();                           // client steering (non-fatal)
+
+    return { ok: true, sid: apRes.sid, restartRequired: 'reboot', errors: [] };
+}
+
+// Agent: set role, join the controller's backhaul as WDS STA, enable roaming.
+async function wizard_mesh_agent(radio_id, params) {
+    const { ssid, key, bssid, clientSsid, clientKey } = params || {};
+
+    // validate BEFORE any change — empty inputs must fail clean, never half-configure
+    if (!ssid || !key || !clientSsid || !clientKey)
+        return { ok: false, sid: null, restartRequired: 'none',
+                 errors: ['Backhaul SSID/key and mesh network name/password are all required.'] };
+
+    // idempotence: refuse if mesh is already active. A second enable would add a
+    // duplicate backhaul -> L2 loop -> broadcast storm (2026-07-10 incident).
+    const cur = await layer2.mesh_role_get();
+    if (cur.ok && cur.data)
+        return { ok: false, sid: null, restartRequired: 'none',
+                 errors: ['Mesh is already active as ' + cur.data + '. Disable it first.'] };
+
+    // safeguard: snapshot wireless config so a failed join can be rolled back
+    const bak = await layer2.wireless_backup();
+    const backup = bak && bak.ok ? bak.data : null;
+
+    const roleRes = await layer2.mesh_role_set('agent');
+    if (!roleRes.ok) return { ok: false, sid: null, restartRequired: 'none', errors: ['mesh_role_set failed'] };
+
+    const joinRes = await meshbh.backhaul_setup('agent', { ssid, key, bssid });
+    if (!joinRes.ok) {
+        await layer2.mesh_role_set('');                 // rollback role
+        if (backup) await layer2.wireless_restore(backup);   // rollback wireless config
+        return { ok: false, sid: null, restartRequired: 'none', errors: joinRes.errors || [] };
+    }
+
+    // mesh client APs (tri-band 2.4+6 GHz, one roaming SSID; 11k/v for usteer)
+    const capRes = await meshbh.client_ap_setup(clientSsid, clientKey);
+    if (!capRes.ok) {
+        await layer2.mesh_role_set('');
+        if (backup) await layer2.wireless_restore(backup);
+        return { ok: false, sid: null, restartRequired: 'none', errors: capRes.errors || [] };
+    }
+
+    await meshbh.agent_l2_setup();                       // pure L2 extender: no DHCP on agent
+    await meshbh.save_client_ssid(clientSsid);           // remember for disable teardown
+    await layer2.roam_start();                           // client steering (non-fatal)
+
+    return { ok: true, sid: joinRes.sid, restartRequired: 'reboot', errors: [] };
+}
+
+// Disable mesh: tear down the backhaul iface and clear the role.
+// Roaming daemon is left running (it is useful independent of mesh).
+async function wizard_mesh_disable() {
+    const ifRes = await layer2.iface_get_all();
+    if (ifRes.ok) {
+        const bh = (ifRes.data || []).find(function(i) {
+            return i.wds && (i.device || []).indexOf('radio1') !== -1;
+        });
+        if (bh) {
+            const role = bh.mode === 'ap' ? 'controller' : 'agent';
+            await meshbh.backhaul_teardown(role, bh.sid);
+            if (role === 'agent') await meshbh.agent_l2_teardown();   // restore agent DHCP
+        }
+    }
+    await meshbh.client_ap_teardown_saved();             // remove the mesh client APs
+    await meshbh.save_client_ssid('');                   // clear remembered SSID
+    await layer2.mesh_role_set('');
+
+    return { ok: true, restartRequired: 'reboot', errors: [] };
+}
+
 // --- STEERD ---
 
 async function load_steerd(clients) {
@@ -238,13 +355,37 @@ async function steerd_set_mode(mode) {
     return layer2.steerd_set_mode(mode);
 }
 
+// --- ROAM (usteer daemon) ---
+
+async function load_roam() {
+    const res = await layer2.roam_status();
+    return res.ok
+        ? res.data
+        : { running: false, pid: null, enabled: false, log: [] };
+}
+
+async function roam_start() {
+    return layer2.roam_start();
+}
+
+async function roam_stop() {
+    return layer2.roam_stop();
+}
+
+// backhaul status passthrough (Mesh tab reads it via layer3)
+async function backhaul_status() {
+    return layer2.backhaul_status();
+}
+
 // --- MODULE EXPORT ---
 
 const Layer3 = {
     load_all, load_diag, load_channels, scan,
     start_apply, poll_apply,
     wizard_ap, wizard_mlo, wizard_sta, wizard_relayd, wizard_repeater, wizard_country,
-    load_steerd, steerd_start, steerd_stop, steerd_set_mode
+    load_steerd, steerd_start, steerd_stop, steerd_set_mode,
+    load_roam, roam_start, roam_stop, backhaul_status,
+    wizard_mesh_controller, wizard_mesh_agent, wizard_mesh_disable
 };
 
 return baseclass.extend(Layer3);

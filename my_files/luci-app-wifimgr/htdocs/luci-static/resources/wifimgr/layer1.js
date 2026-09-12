@@ -1053,6 +1053,93 @@ async function steerd_set_mode(mode) {
     }
 }
 
+// --- GROUP 9: roaming daemon control (usteer) + mesh role ---
+// Roaming daemon is an init.d service (unlike mlo-steerd which is a raw script).
+// Backend is selectable so dawn<->usteer can be swapped without touching callers.
+const ROAM_BACKEND = 'usteer';   // init.d service name; daemon process = <backend>d
+
+async function roam_status() {
+    try {
+        const [pidRes, enRes, logRes] = await Promise.all([
+            fs.exec('/bin/sh', ['-c', `pgrep ${ROAM_BACKEND}d | head -1`]),
+            fs.exec('/bin/sh', ['-c', `/etc/init.d/${ROAM_BACKEND} enabled && echo yes || echo no`]),
+            fs.exec('/bin/sh', ['-c', `logread -e ${ROAM_BACKEND} 2>/dev/null | tail -25 || true`])
+        ]);
+        const pid = (pidRes.stdout || '').trim();
+        return ok({
+            running: pid !== '',
+            pid:     pid ? parseInt(pid) : null,
+            enabled: (enRes.stdout || '').trim() === 'yes',
+            log:     (logRes.stdout || '').trim().split('\n').filter(Boolean)
+        });
+    } catch(e) {
+        return mkErr('exec_failed');
+    }
+}
+
+async function roam_start() {
+    try {
+        const res = await fs.exec('/bin/sh', ['-c',
+            // stop a competing steering daemon (e.g. dawn) so it doesn't fight usteer
+            `[ "${ROAM_BACKEND}" != dawn ] && { /etc/init.d/dawn stop 2>/dev/null; /etc/init.d/dawn disable 2>/dev/null; }; ` +
+            // usteer defaults are all-zero = passive (never steers). Set steering
+            // thresholds so it actually kicks sticky clients (HW-verified 2026-07-10:
+            // these values moved a stuck Windows laptop off a -69 dBm node).
+            `[ "${ROAM_BACKEND}" = usteer ] && { ` +
+                `uci set usteer.@usteer[0].roam_trigger_snr=30; ` +      // <~-65 dBm → start roaming
+                `uci set usteer.@usteer[0].signal_diff_threshold=8; ` +  // steer if another node is 8+ dB better
+                `uci set usteer.@usteer[0].min_snr=15; ` +               // <~-80 dBm → kick (hopeless link)
+                `uci set usteer.@usteer[0].roam_kick_delay=3000; ` +     // kick 3 s after a client ignores the hint
+                `uci set usteer.@usteer[0].assoc_steering=1; ` +         // steer already at association
+                `uci commit usteer; }; ` +
+            `/etc/init.d/${ROAM_BACKEND} enable; /etc/init.d/${ROAM_BACKEND} restart; sleep 1; pgrep ${ROAM_BACKEND}d >/dev/null`
+        ]);
+        return res.code === 0 ? ok(null) : mkErr('start_failed');
+    } catch(e) {
+        return mkErr('exec_failed');
+    }
+}
+
+async function roam_stop() {
+    try {
+        await fs.exec('/bin/sh', ['-c',
+            `/etc/init.d/${ROAM_BACKEND} stop; /etc/init.d/${ROAM_BACKEND} disable; true`
+        ]);
+        return ok(null);
+    } catch(e) {
+        return mkErr('exec_failed');
+    }
+}
+
+// Mesh role persistence: /etc/config/mesh -> mesh.global.role ('controller'|'agent').
+// Empty string clears the role (mesh off).
+async function mesh_role_get() {
+    try {
+        const res = await fs.exec('/sbin/uci', ['-q', 'get', 'mesh.global.role']);
+        return ok((res.stdout || '').trim());   // '' when unset
+    } catch(e) {
+        return ok('');
+    }
+}
+
+async function mesh_role_set(role) {
+    if (hwBusy) return busy();
+    hwBusy = true;
+    try {
+        const script = (role === '' || role === null)
+            ? `/sbin/uci -q delete mesh.global.role 2>/dev/null; /sbin/uci commit mesh 2>/dev/null; true`
+            : `touch /etc/config/mesh && ` +
+              `{ /sbin/uci -q get mesh.global >/dev/null 2>&1 || /sbin/uci set mesh.global=mesh; } && ` +
+              `/sbin/uci set 'mesh.global.role=${role}' && /sbin/uci commit mesh`;
+        const res = await fs.exec('/bin/sh', ['-c', script]);
+        hwBusy = false;
+        return res.code === 0 ? ok(null) : mkErr('uci_failed');
+    } catch(e) {
+        hwBusy = false;
+        return mkErr('exec_failed');
+    }
+}
+
 // --- Module export ---
 
 const Layer1 = {
@@ -1119,7 +1206,13 @@ const Layer1 = {
     steerd_start,
     steerd_stop,
     steerd_get_mode,
-    steerd_set_mode
+    steerd_set_mode,
+    // GROUP 9: roaming daemon (usteer) + mesh role
+    roam_status,
+    roam_start,
+    roam_stop,
+    mesh_role_get,
+    mesh_role_set
 };
 
 return baseclass.extend(Layer1);

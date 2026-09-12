@@ -9,11 +9,11 @@ rm -rf openwrt
 rm -rf mtk-openwrt-feeds
 
 git clone --branch openwrt-25.12 https://git.openwrt.org/openwrt/openwrt.git openwrt
-cd openwrt; git checkout ${OPENWRT_COMMIT:-4d0fec5a4845ba166203a782d08217b3f1cf2af9}; cd -;
+cd openwrt; git checkout ${OPENWRT_COMMIT:-4a5c6b90d21522d2663ce2718c973f9e845f2119}; cd -;
 
 # 2026-07-06: migrated git01 -> main (git01 frozen; MTK recommends main). Single source of truth.
 git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwrt-feeds
-( cd mtk-openwrt-feeds && git checkout 3a4e2a2511af93cea1ca43205a02362423882b7c )
+( cd mtk-openwrt-feeds && git checkout ${MTK_COMMIT:-4e825214deaafc5cdc5457d66a1a828449f07e69} )
 
 #\cp -r my_files/feed_revision mtk-openwrt-feeds/autobuild/unified/
 

@@ -1,7 +1,9 @@
-# Build base (default when no commit inputs given) — keep in sync with the builder scripts:
-#   OpenWrt:  4d0fec5a4845ba166203a782d08217b3f1cf2af9  (openwrt-25.12, lab sync 2026-08-06)
-#   MTK SDK:  3a4e2a2511af93cea1ca43205a02362423882b7c  (main, lab sync 2026-08-06)
-# Bumped 2026-06-28, HW verified on both routers (prev base 7b8ce1e / 42c9ff = 6.12.93).
+# Build base: build-versions.env is the source of truth. It is loaded into the
+# environment below and OVERRIDES the defaults baked into the builder scripts,
+# so bumping a builder alone has no effect here.
+#   OpenWrt:  4a5c6b90d21522d2663ce2718c973f9e845f2119  (openwrt-25.12, 6.12.103)
+#   MTK SDK:  4e825214deaafc5cdc5457d66a1a828449f07e69  (main, mt7996 AP-panic fix)
+# Bumped 2026-08-20 (prev 4d0fec5a / 3a4e2a25 = 6.12.94, HW verified 2026-08-06).
 name: Build BPI-R4 Deploy
 
 on:

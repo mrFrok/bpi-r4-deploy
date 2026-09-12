@@ -420,9 +420,11 @@ async function iface_set(sid, params) {
 
 async function iface_add(radio_id, mode, params) {
     const errors = [];
+    const allowDup = !!params.allowDupSsid;   // mesh client APs share ONE SSID across 2.4+6 GHz
     const write = Object.assign({}, params, { device: radio_id, mode });
+    delete write.allowDupSsid;                // internal flag, never written to uci
 
-    if (params.ssid && mode !== 'sta') {
+    if (params.ssid && mode !== 'sta' && !allowDup) {
         const uciRes = await layer1.uci_read('wireless');
         if (uciRes.ok) {
             for (const sec of Object.values(uciRes.data.wireless || {})) {
@@ -1387,6 +1389,184 @@ async function hostapd_get_neg_ttlm(ifname, mac) {
     return layer1.hostapd_get_neg_ttlm(ifname, mac);
 }
 
+// --- roaming daemon (usteer) + mesh role wrappers ---
+
+async function roam_status() {
+    const res = await layer1.roam_status();
+    return res.ok ? l2ok(res.data) : l2err(res.error);
+}
+
+async function roam_start() {
+    const res = await layer1.roam_start();
+    return res.ok ? l2ok(null) : l2err(res.error);
+}
+
+async function roam_stop() {
+    const res = await layer1.roam_stop();
+    return res.ok ? l2ok(null) : l2err(res.error);
+}
+
+async function mesh_role_get() {
+    const res = await layer1.mesh_role_get();
+    return res.ok ? l2ok(res.data) : l2err(res.error);
+}
+
+async function mesh_role_set(role) {
+    const res = await layer1.mesh_role_set(role);
+    return res.ok ? l2ok(null) : l2err(res.error);
+}
+
+// --- backhaul (WDS 5G mesh) block ---
+// Backhaul = dedicated 5 GHz WDS link. Controller runs a WDS AP; agent runs a
+// WDS STA bridged straight into lan (4-address transparent bridge, no relayd).
+// Built on iface_add (Object.assign passes wds through); relayd stays fallback.
+
+const BACKHAUL_RADIO = 'radio1';   // 5 GHz — research: 5G > 6G for backhaul
+
+// Free the 5 GHz radio for the WDS backhaul AP. A second beaconing BSS on a 5G
+// MLO radio fails ("Failed to set beacon parameters"), so 5G must be dedicated.
+//  - MLD using 5G with >=3 links: drop the 5G link (MLO stays, e.g. 2.4+6).
+//  - MLD using 5G with only 2 links: refuse (would break MLO) -> warning (cesta A).
+//  - standalone AP on 5G: remove it.
+async function release_5g_for_backhaul() {
+    const R = BACKHAUL_RADIO;
+
+    // MLD groups that include 5G
+    const mldRes = await mld_get_all();
+    const mlds = mldRes.ok ? mldRes.data : [];
+    for (const m of mlds) {
+        const radios = m.radios || [];
+        if (radios.indexOf(R) === -1) continue;
+        if (radios.length <= 2) {
+            return { ok: false, errors: [
+                'MLO uses 5 GHz as one of only ' + radios.length + ' links — enabling backhaul ' +
+                'would break it. Adjust MLO first (add another band or remove 5 GHz), then enable mesh.'
+            ] };
+        }
+        const delRes = await layer1.uci_list_del('wireless', m.sid, 'device', R);
+        if (!delRes.ok) return { ok: false, errors: ['failed to remove 5 GHz from MLO'] };
+    }
+
+    // standalone AP on 5G (not MLD)
+    const ifRes  = await iface_get_all();
+    const ifaces = ifRes.ok ? ifRes.data : [];
+    for (const i of ifaces) {
+        if (i.mlo || i.mode !== 'ap') continue;
+        const devs = Array.isArray(i.device) ? i.device : (i.device ? [i.device] : []);
+        if (devs.indexOf(R) !== -1) {
+            const rmRes = await iface_remove(i.sid);
+            if (!rmRes.ok) return { ok: false, errors: ['failed to free the 5 GHz AP'] };
+        }
+    }
+
+    return { ok: true, errors: [] };
+}
+
+// controller: create a WDS AP on 5 GHz
+async function backhaul_setup_ap(radio_id, params) {
+    const errors = [];
+    const { ssid, key } = params || {};
+    if (radio_id !== BACKHAUL_RADIO) errors.push('backhaul must run on the 5 GHz radio (radio1)');
+    if (!ssid) errors.push('ssid is required');
+    if (!key)  errors.push('key is required (backhaul must be encrypted)');
+    if (errors.length) return { ok: false, sid: null, errors };
+
+    // free the 5 GHz radio (drop from MLO / remove standalone AP) before adding WDS AP
+    const rel = await release_5g_for_backhaul();
+    if (!rel.ok) return { ok: false, sid: null, errors: rel.errors };
+
+    return iface_add(radio_id, 'ap', {
+        ssid, key, encryption: 'sae', wds: '1', network: 'lan', hidden: '0'
+    });
+}
+
+// agent: connect a WDS STA to the controller's backhaul AP (bridged into lan)
+async function backhaul_join(radio_id, params) {
+    const errors = [];
+    const { ssid, key, bssid } = params || {};
+    if (radio_id !== BACKHAUL_RADIO) errors.push('backhaul must run on the 5 GHz radio (radio1)');
+    if (!ssid) errors.push('ssid is required');
+    if (!key)  errors.push('key is required');
+    if (errors.length) return { ok: false, sid: null, errors };
+
+    const write = { ssid, key, encryption: 'sae', wds: '1', network: 'lan' };
+    if (bssid) write.bssid = bssid;
+    return iface_add(radio_id, 'sta', write);
+}
+
+// tear down a backhaul iface (AP or STA)
+async function backhaul_leave(sid) {
+    return iface_remove(sid);
+}
+
+// backhaul link status: role + whether the peer is up + basic peer metrics
+async function backhaul_status() {
+    const roleRes = await mesh_role_get();
+    const role = roleRes.ok ? roleRes.data : '';
+
+    const ifRes  = await iface_get_all();
+    const ifaces = ifRes.ok ? ifRes.data : [];
+    const bh = (ifaces || []).find(function(i) {
+        return i.wds && (i.device || []).indexOf(BACKHAUL_RADIO) !== -1;
+    }) || null;
+
+    if (!bh) return l2ok({ role: role, peer_up: false, peer: null, peers: 0, ifname: null });
+
+    // controller / WDS AP side (extender): agents do NOT associate as direct
+    // clients of the MLD AP — hostapd spawns a 4addr AP_VLAN child per agent
+    // (<ifname>.staN) and the peer lives there. Enumerate those children.
+    if (bh.mode === 'ap') {
+        const devRes = await layer1.iw_dev();
+        const raw    = devRes.ok ? (devRes.data.raw || '') : '';
+        const esc    = bh.ifname.replace(/[.]/g, '\\.');
+        const childRe = new RegExp('Interface\\s+(' + esc + '\\.sta\\d+)', 'g');
+        const children = [];
+        let cm;
+        while ((cm = childRe.exec(raw)) !== null) children.push(cm[1]);
+
+        const list = [];
+        for (const ch of children) {
+            const sd = await layer1.iw_station_dump(ch);
+            const stations = sd.ok ? sd.data : [];
+            for (const s of stations) {
+                const linkVals   = Object.values(s.links || {});
+                const authorized = s.authorized === 'yes' ||
+                    linkVals.some(function(l) { return l.authorized === 'yes'; });
+                if (!authorized) continue;
+                const pick = function(key) {
+                    if (s[key]) return s[key];
+                    const l = linkVals.find(function(v) { return v[key]; });
+                    return l ? l[key] : null;
+                };
+                // signal comes as "-76 [-79, -82] dBm" — keep just the integer dBm
+                const rawSig = pick('signal');
+                const sm = rawSig != null ? String(rawSig).match(/-?\d+/) : null;
+                list.push({ mac: s.mac, signal: sm ? parseInt(sm[0], 10) : null,
+                            tx: pick('tx bitrate'), rx: pick('rx bitrate') });
+            }
+        }
+        return l2ok({
+            role:      role || 'controller',
+            peer_up:   list.length > 0,
+            peer:      list[0] || null,     // first agent (convenience)
+            peer_list: list,                // all agents (star topology, N nodes)
+            peers:     list.length,
+            ifname:    bh.ifname
+        });
+    }
+
+    // agent / WDS STA side: peer = the controller we are associated to
+    const sRes = await uplink_get_status(bh.ifname);
+    const st   = sRes.ok ? sRes.data : {};
+    return l2ok({
+        role:    role || 'agent',
+        peer_up: st.wpa_state === 'COMPLETED',
+        peer:    st.bssid ? { mac: st.bssid, signal: st.signal, tx: st.tx_bitrate, rx: st.rx_bitrate } : null,
+        peers:   st.wpa_state === 'COMPLETED' ? 1 : 0,
+        ifname:  bh.ifname
+    });
+}
+
 // --- MODULE EXPORT ---
 
 const Layer2 = {
@@ -1411,7 +1591,12 @@ const Layer2 = {
     // steerd
     steerd_get_status, steerd_start, steerd_stop,
     steerd_get_mode, steerd_set_mode,
-    iw_survey_noise, hostapd_get_neg_ttlm
+    iw_survey_noise, hostapd_get_neg_ttlm,
+    // roaming (usteer) + mesh role
+    roam_status, roam_start, roam_stop,
+    mesh_role_get, mesh_role_set,
+    // backhaul (WDS 5G)
+    backhaul_setup_ap, backhaul_join, backhaul_leave, backhaul_status
 };
 
 return baseclass.extend(Layer2);
