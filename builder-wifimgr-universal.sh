@@ -7,17 +7,66 @@ set -euo pipefail
 #   OpenWrt:  4d0fec5a4845ba166203a782d08217b3f1cf2af9  (openwrt-25.12)
 #   MTK SDK:  3a4e2a2511af93cea1ca43205a02362423882b7c  (main)
 OPENWRT_COMMIT=${OPENWRT_COMMIT:-4a5c6b90d21522d2663ce2718c973f9e845f2119}
+# 2026-07-06: migrated git01 -> main (git01 frozen; MTK recommends main). Single source of truth.
+# 2026-08-06: bump to the lab universal-new pin (see header).
+MTK_COMMIT=${MTK_COMMIT:-4e825214deaafc5cdc5457d66a1a828449f07e69}
 
+########################### persistent build cache ############################
+# actions/checkout runs "git clean -ffdx" in the workspace on every run, so the
+# build tree cannot live there. Everything worth keeping sits under CACHE_ROOT
+# (a fixed absolute path, which is also what makes the toolchain cache valid):
+#
+#   $CACHE_ROOT/dl                     source tarballs   (CONFIG_DOWNLOAD_FOLDER)
+#   $CACHE_ROOT/ccache                 compiler cache    (CONFIG_CCACHE_DIR)
+#   $CACHE_ROOT/tree/<variant>/        openwrt + mtk-openwrt-feeds, symlinked in
+#   $CACHE_ROOT/toolchain/*.tar.zst    toolchain+host dirs, keyed by the two pins
+#
+# The tree is reused only when every input that shapes it is byte-identical:
+# both pins, this script, and all of my_files/ + configs/. Anything else (or
+# FORCE_CLEAN=1) means a full wipe and a fresh clone, like before.
+CACHE_ROOT="${CACHE_ROOT:-$HOME/openwrt-cache}"
+CACHE_VARIANT=wifimgr-universal
+CACHE_TREE="$CACHE_ROOT/tree/$CACHE_VARIANT"
+CACHE_DL="$CACHE_ROOT/dl"
+CACHE_CCACHE="$CACHE_ROOT/ccache"
+CACHE_TOOLCHAIN_DIR="$CACHE_ROOT/toolchain"
+CACHE_TOOLCHAIN="$CACHE_TOOLCHAIN_DIR/$CACHE_VARIANT-${OPENWRT_COMMIT:0:12}-${MTK_COMMIT:0:12}.tar.zst"
+mkdir -p "$CACHE_DL" "$CACHE_CCACHE" "$CACHE_TOOLCHAIN_DIR" "$CACHE_ROOT/tree"
+
+CACHE_KEY=$( { echo "$OPENWRT_COMMIT"; echo "$MTK_COMMIT"; sha256sum "$0"; \
+               find my_files configs -type f -exec sha256sum {} + | sort -k2; \
+             } | sha256sum | cut -d' ' -f1 )
+CACHE_STAMP="$CACHE_TREE/.cache-key"
+
+REUSE_TREE=0
+if [ "${FORCE_CLEAN:-0}" = "1" ]; then
+	echo "cache: FORCE_CLEAN=1 -> full rebuild"
+elif [ -d "$CACHE_TREE/openwrt" ] && [ -f "$CACHE_STAMP" ] && \
+     [ "$(cat "$CACHE_STAMP")" = "$CACHE_KEY" ]; then
+	REUSE_TREE=1
+	echo "cache: reusing prepared tree $CACHE_TREE (key ${CACHE_KEY:0:12})"
+else
+	echo "cache: inputs changed or no tree yet -> fresh clone (key ${CACHE_KEY:0:12})"
+fi
+
+# workspace entries are just symlinks into the cache; never follow them with -rf
 rm -rf openwrt
 rm -rf mtk-openwrt-feeds
 
-git clone --branch openwrt-25.12 https://git.openwrt.org/openwrt/openwrt.git openwrt
-cd openwrt; git checkout ${OPENWRT_COMMIT}; cd -;
+if [ "$REUSE_TREE" = 0 ]; then
+	rm -rf "$CACHE_TREE"
+	mkdir -p "$CACHE_TREE"
+	git clone --branch openwrt-25.12 https://git.openwrt.org/openwrt/openwrt.git "$CACHE_TREE/openwrt"
+	git -C "$CACHE_TREE/openwrt" checkout "$OPENWRT_COMMIT"
+	git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds "$CACHE_TREE/mtk-openwrt-feeds"
+	git -C "$CACHE_TREE/mtk-openwrt-feeds" checkout "$MTK_COMMIT"
+fi
 
-# 2026-07-06: migrated git01 -> main (git01 frozen; MTK recommends main). Single source of truth.
-# 2026-08-06: bump to the lab universal-new pin (see header).
-git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwrt-feeds
-( cd mtk-openwrt-feeds && git checkout ${MTK_COMMIT:-4e825214deaafc5cdc5457d66a1a828449f07e69} )
+ln -sfn "$CACHE_TREE/openwrt" openwrt
+ln -sfn "$CACHE_TREE/mtk-openwrt-feeds" mtk-openwrt-feeds
+
+CCACHE_DIR="$CACHE_CCACHE" ccache -M "${CCACHE_MAXSIZE:-40G}" >/dev/null 2>&1 || true
+###############################################################################
 
 
 \cp -r my_files/999-sfp-10-additional-quirks.patch mtk-openwrt-feeds/25.12/files/target/linux/mediatek/patches-6.12
@@ -37,7 +86,11 @@ git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwr
 \cp -r my_files/999-wifi-02-mt76-share-tpt-led-trigger.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches/9999-w-mt76-share-tpt-led-trigger.patch
 
 cd openwrt
-bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic prepare
+# prepare patches the tree in place and is not idempotent - a reused tree is
+# already through it (the stamp is only written once preparation succeeded).
+if [ "$REUSE_TREE" = 0 ]; then
+	bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic prepare
+fi
 
 
 \cp -r ../my_files/453-w-add-bpi-r4-nvme-dtso.patch target/linux/mediatek/patches-6.12/
@@ -118,14 +171,30 @@ chmod -R 755 feeds/packages/utils/modemdata/files/usr/share
 
 \cp -r ../configs/my_defconfig-wifimgr-universal .config
 
-git clone --depth 1 --branch master --single-branch --no-checkout https://github.com/muink/openwrt-fastfetch.git package/fastfetch
-pushd package/fastfetch
-umask 022
-git checkout
-popd
+# keep downloads and objects outside the tree (rules.mk defaults CCACHE_DIR to
+# $(TOPDIR)/.ccache, which would die with every fresh clone)
+echo "CONFIG_DEVEL=y" >> .config
+echo "CONFIG_DOWNLOAD_FOLDER=\"$CACHE_DL\"" >> .config
+echo "CONFIG_CCACHE=y" >> .config
+echo "CONFIG_CCACHE_DIR=\"$CACHE_CCACHE\"" >> .config
 
-git clone https://github.com/ChesterGoodiny/luci-theme-proton2025 package/luci-theme-proton2025
+if [ ! -d package/fastfetch ]; then
+	git clone --depth 1 --branch master --single-branch --no-checkout https://github.com/muink/openwrt-fastfetch.git package/fastfetch
+	pushd package/fastfetch
+	umask 022
+	git checkout
+	popd
+fi
+
+if [ ! -d package/luci-theme-proton2025 ]; then
+	git clone https://github.com/ChesterGoodiny/luci-theme-proton2025 package/luci-theme-proton2025
+fi
 ./scripts/feeds update -a && ./scripts/feeds install -a
+
+# the tree is fully prepared from here on: record the key so that a run which
+# fails later (image assembly, a single package) can resume instead of redoing
+# the whole toolchain. A failure before this point leaves no stamp -> full wipe.
+echo "$CACHE_KEY" > "$CACHE_STAMP"
 
 make defconfig
 
@@ -154,7 +223,31 @@ echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-emmc-comb-4bg=y" >> .config
 echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-sdmmc-comb-4bg=y" >> .config
 echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg=y" >> .config
 
+# A fresh tree still gets the cross toolchain and host tools for free as long as
+# the pins match: both carry absolute paths, and CACHE_TREE is a fixed location.
+if [ "$REUSE_TREE" = 0 ] && [ -f "$CACHE_TOOLCHAIN" ]; then
+	echo "cache: restoring toolchain from $CACHE_TOOLCHAIN"
+	tar -I zstd -xf "$CACHE_TOOLCHAIN" -C . || {
+		echo "cache: restore failed, falling back to a full toolchain build"
+		rm -f "$CACHE_TOOLCHAIN"
+	}
+fi
+
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic build
+
+# never fail the run over the cache: the images are already built at this point
+if [ ! -f "$CACHE_TOOLCHAIN" ]; then
+	TC_DIRS=$(ls -d staging_dir/toolchain-* build_dir/toolchain-* staging_dir/host build_dir/host 2>/dev/null || true)
+	if [ -n "$TC_DIRS" ]; then
+		echo "cache: saving toolchain to $CACHE_TOOLCHAIN"
+		if tar -I "zstd -3 -T0" -cf "$CACHE_TOOLCHAIN.tmp" $TC_DIRS; then
+			mv "$CACHE_TOOLCHAIN.tmp" "$CACHE_TOOLCHAIN"
+		else
+			echo "cache: toolchain save failed, continuing"
+			rm -f "$CACHE_TOOLCHAIN.tmp"
+		fi
+	fi
+fi
 
 
 cp openwrt/bin/targets/mediatek/filogic/openwrt-mediatek-filogic-bananapi_bpi-r4-squashfs-sysupgrade.itb /home/ipsec/latest-sysupgrade.itb 2>/dev/null || true

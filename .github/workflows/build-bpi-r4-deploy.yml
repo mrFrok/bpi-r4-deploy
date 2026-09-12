@@ -31,6 +31,11 @@ on:
         description: 'MTK SDK commit hash (leave empty to use build-versions.env)'
         required: false
         default: ''
+      force_clean:
+        description: 'Ignore the build cache and rebuild from scratch (standard variant)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -98,6 +103,12 @@ jobs:
         env:
           OPENWRT_COMMIT: ${{ env.OPENWRT_COMMIT }}
           MTK_COMMIT: ${{ env.MTK_COMMIT }}
+          # Honoured by builder-wifimgr-universal.sh (standard variant): the tree,
+          # dl/ and ccache live under CACHE_ROOT because actions/checkout wipes
+          # the workspace on every run. Empty unless the repo variable is set,
+          # in which case the builder falls back to $HOME/openwrt-cache.
+          CACHE_ROOT: ${{ vars.CACHE_ROOT }}
+          FORCE_CLEAN: ${{ github.event.inputs.force_clean == 'true' && '1' || '0' }}
 
       - name: Prepare release artifacts
         run: |
