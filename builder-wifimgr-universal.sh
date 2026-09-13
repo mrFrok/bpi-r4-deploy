@@ -30,7 +30,12 @@ CACHE_TREE="$CACHE_ROOT/tree/$CACHE_VARIANT"
 CACHE_DL="$CACHE_ROOT/dl"
 CACHE_CCACHE="$CACHE_ROOT/ccache"
 CACHE_TOOLCHAIN_DIR="$CACHE_ROOT/toolchain"
-CACHE_TOOLCHAIN="$CACHE_TOOLCHAIN_DIR/$CACHE_VARIANT-${OPENWRT_COMMIT:0:12}-${MTK_COMMIT:0:12}.tar.zst"
+# The toolchain archive stores absolute paths (sysroot, wrapper scripts), and this
+# runner reaches the very same directory under two prefixes - /home/user inside the
+# Debian build container, /home/mrfrok/mybuild on the host - so the tree path has to
+# be part of the key, or a toolchain built in one context is restored into the other.
+CACHE_PATH_TAG=$(printf '%s' "$CACHE_TREE" | sha256sum | cut -c1-8)
+CACHE_TOOLCHAIN="$CACHE_TOOLCHAIN_DIR/$CACHE_VARIANT-${OPENWRT_COMMIT:0:12}-${MTK_COMMIT:0:12}-$CACHE_PATH_TAG.tar.zst"
 mkdir -p "$CACHE_DL" "$CACHE_CCACHE" "$CACHE_TOOLCHAIN_DIR" "$CACHE_ROOT/tree"
 
 CACHE_KEY=$( { echo "$OPENWRT_COMMIT"; echo "$MTK_COMMIT"; sha256sum "$0"; \
