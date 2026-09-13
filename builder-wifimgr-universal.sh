@@ -245,6 +245,14 @@ if [ "$REUSE_TREE" = 0 ] && [ -f "$CACHE_TOOLCHAIN" ]; then
 	}
 fi
 
+# CONFIG_CCACHE prefixes HOSTCC with $(STAGING_DIR_HOST)/bin/ccache, but the wiring
+# in tools/Makefile only reaches tools listed in tools-y. liblzo is not one of them
+# (it needs CONFIG_BUILD_ALL_HOST_TOOLS) and is pulled in as a dependency of lzop, so
+# under the parallel build it starts before tools/ccache is installed and dies with
+# "ccache: not found" (error 127) - autobuild then falls back to a ~90 min -j1 rebuild.
+# Building ccache up front removes the race for every tool in that position.
+make tools/ccache/compile -j"$(nproc)"
+
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh filogic-mac80211-mt798x_rfb-wifi7_nic build
 
 # never fail the run over the cache: the images are already built at this point
