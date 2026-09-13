@@ -70,6 +70,13 @@ fi
 ln -sfn "$CACHE_TREE/openwrt" openwrt
 ln -sfn "$CACHE_TREE/mtk-openwrt-feeds" mtk-openwrt-feeds
 
+# From inside the tree this script reaches the repo as ../my_files and ../configs.
+# ".." is resolved by the kernel against the *physical* cwd, so with the tree in
+# the cache those point at $CACHE_TREE, not at the workspace - the repo has to be
+# reachable from there as well.
+ln -sfn "$PWD/my_files" "$CACHE_TREE/my_files"
+ln -sfn "$PWD/configs" "$CACHE_TREE/configs"
+
 CCACHE_DIR="$CACHE_CCACHE" ccache -M "${CCACHE_MAXSIZE:-40G}" >/dev/null 2>&1 || true
 ###############################################################################
 
@@ -90,7 +97,7 @@ CCACHE_DIR="$CACHE_CCACHE" ccache -M "${CCACHE_MAXSIZE:-40G}" >/dev/null 2>&1 ||
 \cp -r my_files/999-wifi-01-mt7996-per-band-leds.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches/9999-w-mt7996-per-band-leds.patch
 \cp -r my_files/999-wifi-02-mt76-share-tpt-led-trigger.patch mtk-openwrt-feeds/autobuild/unified/filogic/mac80211/25.12/files/package/kernel/mt76/patches/9999-w-mt76-share-tpt-led-trigger.patch
 
-cd openwrt
+cd -P openwrt   # physical path, so $PWD and every syscall see the same tree
 # prepare patches the tree in place and is not idempotent - a reused tree is
 # already through it (the stamp is only written once preparation succeeded).
 if [ "$REUSE_TREE" = 0 ]; then
