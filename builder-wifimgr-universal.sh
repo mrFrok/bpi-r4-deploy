@@ -203,6 +203,13 @@ if [ ! -d package/luci-theme-proton2025 ]; then
 fi
 ./scripts/feeds update -a && ./scripts/feeds install -a
 
+# fish sets the cargo linker from $(TARGET_CC), which CONFIG_CCACHE turns into
+# "ccache aarch64-openwrt-linux-musl-gcc" - cargo wants a single executable and
+# fails with: error: linker `ccache aarch64-…-gcc` not found. Everything else in
+# OpenWrt uses TARGET_CC_NOCACHE for this (see lang/rust/rust-values.mk).
+sed -i 's/_LINKER:=\$(TARGET_CC)/_LINKER:=$(TARGET_CC_NOCACHE)/' feeds/packages/utils/fish/Makefile
+grep -q 'TARGET_CC_NOCACHE' feeds/packages/utils/fish/Makefile || echo "WARN: fish linker patch did not apply"
+
 # the tree is fully prepared from here on: record the key so that a run which
 # fails later (image assembly, a single package) can resume instead of redoing
 # the whole toolchain. A failure before this point leaves no stamp -> full wipe.
