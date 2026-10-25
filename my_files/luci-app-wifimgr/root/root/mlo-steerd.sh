@@ -1,7 +1,7 @@
 #!/bin/sh
 # mlo-steerd v0.4 - MLO Link Steering Daemon + Neg-TTLM + R-TWT
 #
-# Steering algorithm (per-link):
+# Steering algorithm (per-link, SNR from the median client RSSI on the link):
 #   Hard disable : SNR < SNR_HARD_LOW (ignore other params)
 #   Hard enable  : SNR > SNR_HARD_HIGH AND retries < RETRIES_CONFIRM
 #   Soft zone    : weighted score = SNR*60% + retries*30% + busy*10%
@@ -107,18 +107,28 @@ retries_pct() {
     '
 }
 
-# Get minimum RSSI for a link_id (returns "none" if link idle)
-min_rssi() {
+# Get the RSSI that represents a link_id as a whole (returns "none" if link idle).
+# A-TTLM is advertised BSS-wide, so it must follow what most clients see, not
+# the weakest one: with n clients this is the median, and for an even n the
+# upper of the two middle values. The link then scores as bad only when more
+# than half of its clients are below the threshold, and a single distant
+# client is left to its own link selection.
+link_rssi() {
     local lid="$1"
     iw dev "$MLO_IF" station dump 2>/dev/null | awk -v lid="$lid" '
         /Link/ { in_link = (index($0, "Link " lid ":") > 0) }
         in_link && /signal:/ && /\[/ {
             v=$0; sub(/.*signal:[[:space:]]*/,"",v); sub(/[[:space:]].*/, "",v)
             val=v+0
-            if (val != 0 && (min==0 || val < min)) min=val
+            if (val != 0) {
+                # insertion sort, ascending (busybox awk has no asort)
+                i = ++n
+                while (i > 1 && s[i-1] > val) { s[i] = s[i-1]; i-- }
+                s[i] = val
+            }
             in_link=0
         }
-        END { print (min+0 != 0) ? min : "none" }
+        END { print (n > 0) ? s[int(n / 2) + 1] : "none" }
     '
 }
 
@@ -310,7 +320,7 @@ while true; do
     # Collect inputs
     update_link_freqs
     N0=$(noise_at $FREQ_L0); N1=$(noise_at $FREQ_L1); N2=$(noise_at $FREQ_L2)
-    R0=$(min_rssi 0);        R1=$(min_rssi 1);        R2=$(min_rssi 2)
+    R0=$(link_rssi 0);       R1=$(link_rssi 1);       R2=$(link_rssi 2)
     RET=$(retries_pct)
     BUSY2=$(busy_at $FREQ_L2); BUSY1=$(busy_at $FREQ_L1)
     [ -z "$BUSY2" ] && BUSY2=0
