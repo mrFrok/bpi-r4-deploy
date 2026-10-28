@@ -61,10 +61,6 @@ make defconfig
 add_config
 board_config
 if [ -n "${OPENWRT_CACHE:-}" ]; then
-	# The kernel build is under .NOTPARALLEL, so make hands it -j1 and it
-	# compiles on one core; kbuild takes its own -j.
-	sed -i 's/^KERNEL_MAKE = \$(MAKE) /&-j$(NPROC) /' include/kernel.mk
-	grep -q '^KERNEL_MAKE = \$(MAKE) -j\$(NPROC) ' include/kernel.mk
 	echo "CONFIG_CCACHE=y" >> .config
 	echo "CONFIG_CCACHE_DIR=\"$OPENWRT_CACHE/ccache\"" >> .config
 fi
