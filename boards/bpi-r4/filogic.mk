@@ -214,7 +214,6 @@ define Device/bananapi_bpi-r4
   DEVICE_DTS_CONFIG := config-mt7988a-bananapi-bpi-r4
   $(call Device/bananapi_bpi-r4-common-4gb)
   ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
-  DEVICE_PACKAGES += docker dockerd docker-compose containerd runc
 endef
 TARGET_DEVICES += bananapi_bpi-r4
 
@@ -224,7 +223,6 @@ define Device/bananapi_bpi-r4-poe
   DEVICE_DTS_CONFIG := config-mt7988a-bananapi-bpi-r4-poe
   $(call Device/bananapi_bpi-r4-common-4gb)
   DEVICE_PACKAGES += mt798x-2p5g-phy-firmware-internal kmod-mt798x-2p5g-phy
-  DEVICE_PACKAGES += docker dockerd docker-compose containerd runc
   ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
   SUPPORTED_DEVICES += bananapi,bpi-r4-2g5
   UBINIZE_PARTS := fip=:$(STAGING_DIR_IMAGE)/mt7988_bananapi_bpi-r4-poe-snand-u-boot.fip
@@ -238,7 +236,6 @@ define Device/bananapi_bpi-r4-8gb
   BPI_R4_FIP_NAME := bananapi_bpi-r4
   $(call Device/bananapi_bpi-r4-common-8gb)
   ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
-  DEVICE_PACKAGES += docker dockerd docker-compose containerd runc
   SUPPORTED_DEVICES += bananapi,bpi-r4
 endef
 TARGET_DEVICES += bananapi_bpi-r4-8gb
@@ -251,7 +248,6 @@ define Device/bananapi_bpi-r4-poe-8gb
   BPI_R4_FIP_NAME := bananapi_bpi-r4-poe
   $(call Device/bananapi_bpi-r4-common-8gb)
   DEVICE_PACKAGES += mt798x-2p5g-phy-firmware-internal kmod-mt798x-2p5g-phy
-  DEVICE_PACKAGES += docker dockerd docker-compose containerd runc
   ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
   SUPPORTED_DEVICES += bananapi,bpi-r4-2g5
   UBINIZE_PARTS := fip=:$(STAGING_DIR_IMAGE)/mt7988_bananapi_bpi-r4-poe-snand-u-boot.fip

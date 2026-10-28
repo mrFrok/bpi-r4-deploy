@@ -32,6 +32,11 @@ board_tree() {
 board_packages() {
 	[ "$VARIANT" = standard ] || return 0
 	\cp -r "$REPO/common/packages/luci-app-wifimgr" feeds/luci/applications/luci-app-wifimgr
+	rm -rf feeds/luci/themes/luci-theme-proton2025
+	git clone -q --depth 1 --branch "$PROTON2025_TAG" \
+		https://github.com/ChesterGoodiny/luci-theme-proton2025.git \
+		feeds/luci/themes/luci-theme-proton2025
+	rm -rf feeds/luci/themes/luci-theme-proton2025/.git
 }
 
 board_after_feeds() {
