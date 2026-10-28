@@ -100,6 +100,9 @@ jobs:
             rsync swig unzip zlib1g-dev file wget libelf-dev ccache git
 
       - name: Build
+        env:
+          # Repository variable; set it on self-hosted runners to keep dl/ and ccache
+          OPENWRT_CACHE: ${{ vars.OPENWRT_CACHE }}
         run: ./build.sh bpi-r4 "${{ github.event.inputs.variant }}"
 
       - name: Prepare release artifacts

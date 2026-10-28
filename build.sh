@@ -34,6 +34,13 @@ esac
 fetch_sources
 add_kernel_patches
 
+# A persistent OPENWRT_CACHE (self-hosted runners) keeps the downloads and
+# the ccache between builds; the tree itself is still rebuilt from scratch.
+if [ -n "${OPENWRT_CACHE:-}" ]; then
+	mkdir -p "$OPENWRT_CACHE/dl" "$OPENWRT_CACHE/ccache"
+	ln -s "$OPENWRT_CACHE/dl" openwrt/dl
+fi
+
 cd openwrt
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh "$PROFILE" prepare
 
@@ -53,5 +60,9 @@ add_after_feeds
 make defconfig
 add_config
 board_config
+if [ -n "${OPENWRT_CACHE:-}" ]; then
+	echo "CONFIG_CCACHE=y" >> .config
+	echo "CONFIG_CCACHE_DIR=\"$OPENWRT_CACHE/ccache\"" >> .config
+fi
 
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh "$PROFILE" build
