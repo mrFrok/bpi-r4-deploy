@@ -11,14 +11,40 @@ load_pins() {
 	done < "$1"
 }
 
+# Clone $1 (branch $2) into $3 and check out $4. With OPENWRT_CACHE set, the
+# repository is kept as a mirror there and only updated, with retries, so a
+# build does not download the whole history again or die on a dropped
+# connection.
+fetch_repo() {
+	local url=$1 branch=$2 dir=$3 commit=$4 mirror i
+
+	if [ -n "${OPENWRT_CACHE:-}" ]; then
+		mirror=$OPENWRT_CACHE/git/$(basename "$dir").git
+		mkdir -p "$OPENWRT_CACHE/git"
+		for i in 1 2 3 4 5; do
+			if [ -d "$mirror" ]; then
+				git -C "$mirror" remote update --prune && break
+			else
+				rm -rf "$mirror"
+				git clone --mirror "$url" "$mirror" && break
+			fi
+			echo "fetching $url failed ($i/5), retrying" >&2
+			sleep 15
+		done
+		[ -d "$mirror" ] && git -C "$mirror" cat-file -e "$commit^{commit}" || return 1
+		git clone --branch "$branch" "$mirror" "$dir"
+		git -C "$dir" remote set-url origin "$url"
+	else
+		git clone --branch "$branch" "$url" "$dir"
+	fi
+	git -C "$dir" checkout "$commit"
+}
+
 fetch_sources() {
 	rm -rf openwrt mtk-openwrt-feeds
 
-	git clone --branch openwrt-25.12 https://github.com/openwrt/openwrt.git openwrt
-	git -C openwrt checkout "$OPENWRT_COMMIT"
-
-	git clone --branch main https://github.com/mediatek/mtk-openwrt-feeds mtk-openwrt-feeds
-	git -C mtk-openwrt-feeds checkout "$MTK_COMMIT"
+	fetch_repo https://github.com/openwrt/openwrt.git openwrt-25.12 openwrt "$OPENWRT_COMMIT"
+	fetch_repo https://github.com/mediatek/mtk-openwrt-feeds main mtk-openwrt-feeds "$MTK_COMMIT"
 }
 
 # Kernel patches for both boards go into the MTK feed, so the autobuild
