@@ -63,6 +63,9 @@ board_config
 if [ -n "${OPENWRT_CACHE:-}" ]; then
 	echo "CONFIG_CCACHE=y" >> .config
 	echo "CONFIG_CCACHE_DIR=\"$OPENWRT_CACHE/ccache\"" >> .config
+	# Host tools that use ccache can start before tools/ccache is installed;
+	# the parallel build then fails and autobuild repeats it with -j1.
+	make -j"$(nproc)" tools/ccache/compile || echo "WARN: tools/ccache did not build first" >&2
 fi
 
 bash ../mtk-openwrt-feeds/autobuild/unified/autobuild.sh "$PROFILE" build
