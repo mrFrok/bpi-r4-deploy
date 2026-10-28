@@ -37,6 +37,12 @@ board_packages() {
 		https://github.com/ChesterGoodiny/luci-theme-proton2025.git \
 		feeds/luci/themes/luci-theme-proton2025
 	rm -rf feeds/luci/themes/luci-theme-proton2025/.git
+	rm -rf feeds/packages/utils/fastfetch
+	git init -q feeds/packages/utils/fastfetch
+	git -C feeds/packages/utils/fastfetch fetch -q --depth 1 \
+		https://github.com/muink/openwrt-fastfetch.git "$FASTFETCH_COMMIT"
+	git -C feeds/packages/utils/fastfetch checkout -q FETCH_HEAD
+	rm -rf feeds/packages/utils/fastfetch/.git
 }
 
 board_after_feeds() {
