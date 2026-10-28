@@ -42,7 +42,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
 
     steps:
       - name: Checkout repository
@@ -73,6 +73,7 @@ jobs:
           nproc; lscpu | grep -E 'Model name|^CPU\(s\)'; free -g | head -2
 
       - name: Free disk space on runner
+        if: runner.environment == 'github-hosted'
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -84,6 +85,7 @@ jobs:
           swap-storage: false
 
       - name: Install build dependencies
+        if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
