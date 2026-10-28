@@ -63,6 +63,10 @@ board_config
 if [ -n "${OPENWRT_CACHE:-}" ]; then
 	echo "CONFIG_CCACHE=y" >> .config
 	echo "CONFIG_CCACHE_DIR=\"$OPENWRT_CACHE/ccache\"" >> .config
+	# fish names `ccache <gcc>` as the Rust linker, which cargo takes as one
+	# executable name; the Rust packages in the feed use TARGET_CC_NOCACHE.
+	sed -i '/_LINKER:=/s/\$(TARGET_CC)$/$(TARGET_CC_NOCACHE)/' feeds/packages/utils/fish/Makefile
+	grep -q '_LINKER:=\$(TARGET_CC_NOCACHE)$' feeds/packages/utils/fish/Makefile
 	# Host tools that use ccache can start before tools/ccache is installed;
 	# the parallel build then fails and autobuild repeats it with -j1.
 	make -j"$(nproc)" tools/ccache/compile || echo "WARN: tools/ccache did not build first" >&2
