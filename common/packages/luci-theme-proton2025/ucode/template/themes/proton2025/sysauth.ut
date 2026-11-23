@@ -1,0 +1,476 @@
+{#
+ Proton2025 Theme - Login Template
+ Copyright 2025-2026 ChesterGoodiny
+ Licensed under Apache License 2.0
+ See LICENSE and NOTICE for details.
+-#}
+
+{%
+	const boardinfo = ubus.call('system', 'board');
+
+	// Optional custom login branding (router name + uploaded logo).
+	const protonResp = ubus.call('uci', 'get', { config: 'proton2025', section: 'settings' });
+	const protonSettings = (protonResp && protonResp.values) ? protonResp.values : {};
+
+	// Resolve the theme mode server-side so the login page renders with the
+	// correct data-theme from the first paint Ã¢â‚¬â€ no flash of the wrong theme.
+	// Mirrors the logic in header.ut.
+	function resolveServerTheme(mode) {
+		if (mode === 'auto') {
+			// We cannot read prefers-color-scheme from ucode; default to dark
+			// which matches the Proton2025 default and the login canvas.
+			return 'dark';
+		}
+		return mode === 'light' ? 'light' : 'dark';
+	}
+	const serverTheme = resolveServerTheme(protonSettings.theme_mode || 'auto');
+
+	const loginBranding = (protonSettings.login_branding == '1');
+	const loginLogoOnly = (protonSettings.login_logo_only == '1');
+	const loginLogo = protonSettings.login_logo;
+	const customName = protonSettings.login_name;
+	const loginName = (customName != null && customName != '') ? customName : (boardinfo.hostname ?? 'Router');
+
+	// Settings copy for the client-side sync, WITHOUT the (potentially
+	// large) logo data URI Ã¢â‚¬â€ it is only needed server-side for the <img>
+	// above. This keeps the embedded blob small.
+	const clientSettings = {};
+	for (let k in protonSettings)
+		if (k != 'login_logo')
+			clientSettings[k] = protonSettings[k];
+
+	http.prepare_content('text/html; charset=UTF-8');
+-%}
+
+<!DOCTYPE html>
+<html lang="{{ dispatcher.lang }}" data-theme="{{ serverTheme }}" data-darkmode="{{ serverTheme === 'dark' ? 'true' : 'false' }}">
+<head>
+<meta charset="utf-8" />
+<script>
+/* Proton2025 login page UCI sync */
+(function () {
+    "use strict";
+
+    var response = {{ sprintf('%J', { values: clientSettings }) }};
+    var settings = response && response.values ? response.values : {};
+
+    var map = {
+        mode: "proton-theme-mode",
+        accent: "proton-accent-color",
+        // accent_custom must ride along with accent: without it the first-ever
+        // login (empty localStorage) sets accent="custom" but no hex, so the
+        // apply block below falls back to #5e9eff and the page looks blue until
+        // a later login populates localStorage from the main-UI sync.
+        accent_custom: "proton-accent-custom",
+        zoom: "proton-zoom",
+        transparency: "proton-transparency",
+        border_radius: "proton-border-radius",
+        tab_outline: "proton-tab-outline",
+		tab_style: "proton-tab-style",
+        animations: "proton-animations",
+        services_log: "proton-services-log",
+        log_highlight: "proton-log-highlight",
+        page_width: "proton-page-width",
+        background_pattern: "proton-background-pattern",
+        pattern_scale: "proton-pattern-scale",
+        custom_font: "proton-custom-font",
+        login_animation: "proton-login-animation",
+        // ÃÂ¤ÃÂ¾ÃÂ»ÃÂ±Ã‘ÂÃÂº ÃÂ´ÃÂ»Ã‘Â header.ut: ÃÂµÃ‘ÂÃÂ»ÃÂ¸ ubus Ã‘â€šÃÂ°ÃÂ¼ ÃÂ½ÃÂµÃÂ´ÃÂ¾Ã‘ÂÃ‘â€šÃ‘Æ’ÃÂ¿ÃÂµÃÂ½, Ã‘â‚¬ÃÂ°Ã‘ÂÃÂºÃÂ»ÃÂ°ÃÂ´ÃÂºÃÂ° ÃÂ¼ÃÂµÃÂ½Ã‘Å½ Ã‘Æ’ÃÂ¶ÃÂµ
+        // ÃÂ»ÃÂµÃÂ¶ÃÂ¸Ã‘â€š ÃÂ² localStorage Ã‘Â ÃÂ»ÃÂ¾ÃÂ³ÃÂ¸ÃÂ½ÃÂ° ÃÂ¸ Ã‘â‚¬ÃÂµÃÂ»Ã‘Å’Ã‘Â ÃÂ½ÃÂµ ÃÂ¼ÃÂµÃÂ»Ã‘Å’ÃÂºÃÂ½Ã‘â€˜Ã‘â€š ÃÂ²ÃÂµÃ‘â‚¬Ã‘â€¦ÃÂ½ÃÂ¸ÃÂ¼ ÃÂ¼ÃÂµÃÂ½Ã‘Å½.
+        menu_mode: "proton-menu-mode",
+        menu_collapsed: "proton-menu-collapsed"
+    };
+
+    var bools = {
+        transparency: true,
+        animations: true,
+        services_log: true,
+        log_highlight: true,
+        custom_font: true,
+        menu_collapsed: true
+    };
+
+    function toLocal(key, value) {
+        if (value === null || value === undefined) return null;
+
+        if (bools[key]) {
+            return String(value) === "1" ? "true" : "false";
+        }
+
+        return String(value);
+    }
+
+    Object.keys(map).forEach(function (key) {
+        if (!Object.prototype.hasOwnProperty.call(settings, key)) return;
+
+        var value = toLocal(key, settings[key]);
+        if (value === null) return;
+
+        try {
+            localStorage.setItem(map[key], value);
+        } catch (e) {}
+    });
+})();
+</script>
+<script>
+// Apply all theme settings from localStorage (same as header.ut)
+(function() {
+     function resolveThemeMode(mode) {
+             if (mode === 'auto' && window.matchMedia) {
+                     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+             }
+
+             return mode === 'light' ? 'light' : 'dark';
+     }
+
+     // Theme mode (dark/light/auto)
+     var themeMode = resolveThemeMode(localStorage.getItem('proton-theme-mode') || 'auto');
+     if (themeMode === 'light') {
+             document.documentElement.setAttribute('data-theme', 'light');
+             document.documentElement.setAttribute('data-darkmode', 'false');
+     } else {
+             document.documentElement.setAttribute('data-theme', 'dark');
+             document.documentElement.setAttribute('data-darkmode', 'true');
+     }
+     document.documentElement.style.colorScheme = themeMode;
+
+	// Zoom
+	var defaultZoom = '100';
+	var z = parseInt(localStorage.getItem('proton-zoom') || defaultZoom, 10);
+
+	if (isNaN(z)) {
+	    z = 100;
+	}
+
+	z = Math.max(75, Math.min(150, z));
+
+	// Keep the login page fullscreen. Apply UI zoom only to the login content.
+	document.documentElement.style.zoom = '';
+	document.documentElement.style.setProperty('--proton-login-scale', z / 100);
+
+	if (document.body) {
+	    document.body.style.zoom = '';
+	}
+
+	// Transparency
+	var t = localStorage.getItem('proton-transparency');
+	if (t !== 'false') document.documentElement.classList.add('proton-transparency');
+
+	// Border radius
+	var r = localStorage.getItem('proton-border-radius');
+	if (r === 'sharp') document.documentElement.classList.add('proton-radius-sharp');
+	else if (r === 'extra') document.documentElement.classList.add('proton-radius-extra');
+
+	// Accent color
+	var a = localStorage.getItem('proton-accent-color') || 'blue';
+	var c = {
+		default: { accent: '#4b5563', hover: '#374151', glow: 'rgba(75, 85, 99, 0.22)', rgb: '75, 85, 99' },
+		blue:    { accent: '#5e9eff', hover: '#7db2ff', glow: 'rgba(94, 158, 255, 0.18)', rgb: '94, 158, 255' },
+		purple:  { accent: '#a78bfa', hover: '#c3b4ff', glow: 'rgba(167, 139, 250, 0.22)', rgb: '167, 139, 250' },
+		green:   { accent: '#34d399', hover: '#2fb885', glow: 'rgba(52, 211, 153, 0.18)', rgb: '52, 211, 153' },
+		orange:  { accent: '#fb923c', hover: '#f47c1f', glow: 'rgba(251, 146, 60, 0.20)', rgb: '251, 146, 60' },
+		red:     { accent: '#f87171', hover: '#f04c4c', glow: 'rgba(248, 113, 113, 0.20)', rgb: '248, 113, 113' }
+	};
+	if (a === 'custom') {
+		var hx = (localStorage.getItem('proton-accent-custom') || '#5e9eff').trim().replace(/^#/, '');
+		if (/^[0-9a-fA-F]{3}$/.test(hx)) hx = hx.replace(/(.)/g, '$1$1');
+		if (/^[0-9a-fA-F]{6}$/.test(hx)) {
+			var rr = parseInt(hx.slice(0, 2), 16), gg = parseInt(hx.slice(2, 4), 16), bb = parseInt(hx.slice(4, 6), 16);
+			var lt = function (v) { return Math.round(v + (255 - v) * 0.2); };
+			var th = function (v) { return ('0' + v.toString(16)).slice(-2); };
+			c.custom = { accent: '#' + hx, hover: '#' + th(lt(rr)) + th(lt(gg)) + th(lt(bb)), glow: 'rgba(' + rr + ', ' + gg + ', ' + bb + ', 0.2)', rgb: rr + ', ' + gg + ', ' + bb };
+		}
+	}
+	if (c[a]) {
+		document.documentElement.style.setProperty('--proton-accent', c[a].accent);
+		document.documentElement.style.setProperty('--proton-accent-hover', c[a].hover);
+		document.documentElement.style.setProperty('--proton-accent-glow', c[a].glow);
+		document.documentElement.style.setProperty('--proton-accent-rgb', c[a].rgb);
+	}
+
+	// Animations
+	if (localStorage.getItem('proton-animations') === 'false') document.documentElement.classList.add('proton-no-animations');
+
+	// Background color (set before cascade.css loads to avoid a flash)
+	var bgSolid = themeMode === 'light' ? '#ffffff' : '#0f1419';
+	document.documentElement.style.setProperty('background-color', bgSolid);
+
+	// Live-follow OS theme changes while in 'auto' mode
+	if ((localStorage.getItem('proton-theme-mode') || 'auto') === 'auto' && window.matchMedia) {
+		var mq = window.matchMedia('(prefers-color-scheme: dark)');
+		var applyOsTheme = function (dark) {
+			var theme = dark ? 'dark' : 'light';
+			document.documentElement.setAttribute('data-theme', theme);
+			document.documentElement.setAttribute('data-darkmode', dark ? 'true' : 'false');
+			document.documentElement.style.setProperty('background-color', dark ? '#0f1419' : '#ffffff');
+		};
+		if (typeof mq.addEventListener === 'function') {
+			mq.addEventListener('change', function (ev) { applyOsTheme(ev.matches); });
+		} else if (typeof mq.addListener === 'function') {
+			mq.addListener(function (ev) { applyOsTheme(ev.matches); });
+		}
+	}
+
+	// Login page means a new auth session is starting soon, so restore any
+	// alerts that were only dismissed for the previous authenticated session.
+	try {
+		for (var i = sessionStorage.length - 1; i >= 0; i--) {
+			var key = sessionStorage.key(i);
+			if (key && key.indexOf('proton-alert-dismissed-') === 0) {
+				sessionStorage.removeItem(key);
+			}
+		}
+	} catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0f1419" />
+<meta name="color-scheme" content="dark light" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="{{ entityencode(boardinfo.hostname ?? 'LuCI', true) }}" />
+{# ÃÂ£Ã‘ÂÃ‘â€šÃÂ°ÃÂ½ÃÂ¾ÃÂ²ÃÂºÃÂ° ÃÂ½ÃÂ° ÃÂ³ÃÂ»ÃÂ°ÃÂ²ÃÂ½Ã‘â€¹ÃÂ¹ Ã‘ÂÃÂºÃ‘â‚¬ÃÂ°ÃÂ½: ÃÂ¼ÃÂ°ÃÂ½ÃÂ¸Ã‘â€žÃÂµÃ‘ÂÃ‘â€š ÃÂ¸ PNG-ÃÂ¸ÃÂºÃÂ¾ÃÂ½ÃÂºÃÂ¸
+   ÃÂ´ÃÂ»Ã‘Â Android/Chrome, apple-touch-icon ÃÂ´ÃÂ»Ã‘Â iOS. Ãâ€˜Ã‘â‚¬ÃÂ°Ã‘Æ’ÃÂ·ÃÂµÃ‘â‚¬ ÃÂ¿Ã‘â‚¬ÃÂµÃÂ´ÃÂ»ÃÂ°ÃÂ³ÃÂ°ÃÂµÃ‘â€š
+   Ã‚Â«ÃÂ£Ã‘ÂÃ‘â€šÃÂ°ÃÂ½ÃÂ¾ÃÂ²ÃÂ¸Ã‘â€šÃ‘Å’Ã‚Â» Ã‘â€šÃÂ¾ÃÂ»Ã‘Å’ÃÂºÃÂ¾ ÃÂ¿ÃÂ¾ HTTPS; ÃÂ¿ÃÂ¾ HTTP ÃÂ¾Ã‘ÂÃ‘â€šÃÂ°Ã‘â€˜Ã‘â€šÃ‘ÂÃ‘Â Ã‘ÂÃ‘â‚¬ÃÂ»Ã‘â€¹ÃÂº ÃÂ½ÃÂ° ÃÂ³ÃÂ»ÃÂ°ÃÂ²ÃÂ½ÃÂ¾ÃÂ¼ Ã‘ÂÃÂºÃ‘â‚¬ÃÂ°ÃÂ½ÃÂµ. #}
+<link rel="manifest" href="{{ media }}/manifest.json" />
+<link rel="apple-touch-icon" href="{{ media }}/img/apple-touch-icon.png" />
+{# ÃÅ¡Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸Ã‘â€¡ÃÂµÃ‘ÂÃÂºÃÂ¸ÃÂ¹ Ã‘â€žÃÂ¾ÃÂ½: ÃÂ·ÃÂ°ÃÂ´ÃÂ°Ã‘â€˜ÃÂ¼ Ã‘ÂÃ‘â‚¬ÃÂ°ÃÂ·Ã‘Æ’ ÃÂ² head, Ã‘â€¡Ã‘â€šÃÂ¾ÃÂ±Ã‘â€¹ ÃÂ±Ã‘â‚¬ÃÂ°Ã‘Æ’ÃÂ·ÃÂµÃ‘â‚¬ ÃÂ½ÃÂµ Ã‘â‚¬ÃÂ¸Ã‘ÂÃÂ¾ÃÂ²ÃÂ°ÃÂ» ÃÂ±ÃÂµÃÂ»Ã‘â€¹ÃÂ¹ Ã‘â€žÃÂ¾ÃÂ½
+   ÃÂ´ÃÂ¾ ÃÂ·ÃÂ°ÃÂ³Ã‘â‚¬Ã‘Æ’ÃÂ·ÃÂºÃÂ¸ cascade.css. Ãâ€”ÃÂ½ÃÂ°Ã‘â€¡ÃÂµÃÂ½ÃÂ¸ÃÂµ Ã‘ÂÃÂ¾ÃÂ²ÃÂ¿ÃÂ°ÃÂ´ÃÂ°ÃÂµÃ‘â€š Ã‘Â Ã‘â€šÃÂµÃÂ¼, Ã‘â€¡Ã‘â€šÃÂ¾ ÃÂ²Ã‘â€¹Ã‘ÂÃ‘â€šÃÂ°ÃÂ²ÃÂ»Ã‘ÂÃÂµÃ‘â€š
+   inline-Ã‘ÂÃÂºÃ‘â‚¬ÃÂ¸ÃÂ¿Ã‘â€š ÃÂ½ÃÂ¸ÃÂ¶ÃÂµ ÃÂ¸ login-bg.css. #}
+<style>
+html { background-color: {{ serverTheme === 'light' ? '#ffffff' : '#0f1419' }} !important; }
+body.login-page { background-color: {{ serverTheme === 'light' ? '#ffffff' : '#0f1419' }} !important; }
+</style>
+{# ÃÅ¡ÃÂ»Ã‘Å½Ã‘â€¡ ÃÂ´ÃÂ¾ÃÂ»ÃÂ¶ÃÂµÃÂ½ Ã‘ÂÃÂ¾ÃÂ²ÃÂ¿ÃÂ°ÃÂ´ÃÂ°Ã‘â€šÃ‘Å’ Ã‘Â __pv ÃÂ² header.ut: ÃÂ±ÃÂµÃÂ· ?v= ÃÂ±Ã‘â‚¬ÃÂ°Ã‘Æ’ÃÂ·ÃÂµÃ‘â‚¬ ÃÂ¾Ã‘â€šÃÂ´ÃÂ°Ã‘â€˜Ã‘â€š
+   Ã‘ÂÃ‘â€šÃÂ°Ã‘â‚¬Ã‘â€¹ÃÂ¹ cascade.css ÃÂ½ÃÂ° Ã‘ÂÃ‘â€šÃ‘â‚¬ÃÂ°ÃÂ½ÃÂ¸Ã‘â€ ÃÂµ ÃÂ»ÃÂ¾ÃÂ³ÃÂ¸ÃÂ½ÃÂ° ÃÂ¿ÃÂ¾Ã‘ÂÃÂ»ÃÂµ ÃÂ¾ÃÂ±ÃÂ½ÃÂ¾ÃÂ²ÃÂ»ÃÂµÃÂ½ÃÂ¸Ã‘Â Ã‘â€šÃÂµÃÂ¼Ã‘â€¹. #}
+{# ÃÅ¡ÃÂ»Ã‘Å½Ã‘â€¡ ÃÂºÃ‘ÂÃ‘Ë†ÃÂ° Ã‘ÂÃ‘â€šÃÂ°Ã‘â€šÃÂ¸ÃÂºÃÂ¸ = ÃÂ²ÃÂµÃ‘â‚¬Ã‘ÂÃÂ¸Ã‘Â Ã‘â€šÃÂµÃÂ¼Ã‘â€¹ + pkgs_update_time (ÃÂ²Ã‘â‚¬ÃÂµÃÂ¼Ã‘Â ÃÂ¸ÃÂ·ÃÂ¼ÃÂµÃÂ½ÃÂµÃÂ½ÃÂ¸Ã‘Â ÃÂ±ÃÂ°ÃÂ·Ã‘â€¹
+   ÃÂ¿ÃÂ°ÃÂºÃÂµÃ‘â€šÃÂ¾ÃÂ²). ÃÅ¾ÃÂ½ ÃÂ¼ÃÂµÃÂ½Ã‘ÂÃÂµÃ‘â€šÃ‘ÂÃ‘Â ÃÂ¿Ã‘â‚¬ÃÂ¸ ÃÂ»Ã‘Å½ÃÂ±ÃÂ¾ÃÂ¹ Ã‘Æ’Ã‘ÂÃ‘â€šÃÂ°ÃÂ½ÃÂ¾ÃÂ²ÃÂºÃÂµ ÃÂ¸ÃÂ»ÃÂ¸ ÃÂ¾ÃÂ±ÃÂ½ÃÂ¾ÃÂ²ÃÂ»ÃÂµÃÂ½ÃÂ¸ÃÂ¸ ÃÂ¿ÃÂ°ÃÂºÃÂµÃ‘â€šÃÂ°, ÃÂ¿ÃÂ¾Ã‘ÂÃ‘â€šÃÂ¾ÃÂ¼Ã‘Æ’
+   ÃÂ¿ÃÂ¾Ã‘ÂÃÂ»ÃÂµ ÃÂ¾ÃÂ±ÃÂ½ÃÂ¾ÃÂ²ÃÂ»ÃÂµÃÂ½ÃÂ¸Ã‘Â Ã‘â€šÃÂµÃÂ¼Ã‘â€¹ ÃÂ±Ã‘â‚¬ÃÂ°Ã‘Æ’ÃÂ·ÃÂµÃ‘â‚¬ ÃÂ±ÃÂµÃ‘â‚¬Ã‘â€˜Ã‘â€š Ã‘ÂÃÂ²ÃÂµÃÂ¶ÃÂ¸ÃÂµ CSS/JS, ÃÂ´ÃÂ°ÃÂ¶ÃÂµ ÃÂµÃ‘ÂÃÂ»ÃÂ¸ ÃÂ²ÃÂµÃ‘â‚¬Ã‘ÂÃÂ¸Ã‘Å½ ÃÂ½ÃÂ¸ÃÂ¶ÃÂµ
+   ÃÂ·ÃÂ°ÃÂ±Ã‘â€¹ÃÂ»ÃÂ¸ ÃÂ¿ÃÂ¾ÃÂ´ÃÂ½Ã‘ÂÃ‘â€šÃ‘Å’ (Ã‘â€šÃÂ°ÃÂº Ã‘ÂÃÂ»Ã‘Æ’Ã‘â€¡ÃÂ¸ÃÂ»ÃÂ¾Ã‘ÂÃ‘Å’ ÃÂ² 1.4.4). Ãâ€™ Ã‘ÂÃ‘â€šÃÂ°Ã‘â‚¬ÃÂ¾ÃÂ¼ LuCI ÃÂ¿ÃÂµÃ‘â‚¬ÃÂµÃÂ¼ÃÂµÃÂ½ÃÂ½ÃÂ¾ÃÂ¹ ÃÂ½ÃÂµÃ‘â€š. #}
+{% let __pv = "1.4.6" + (pkgs_update_time ? '-' + pkgs_update_time : ''); %}
+<link rel="stylesheet" fetchpriority="high" href="{{ media }}/css/cascade.css?v={{ __pv }}" />
+<link rel="stylesheet" href="{{ media }}/css/login-bg.css?v={{ __pv }}" />
+
+<link rel="icon" href="{{ media }}/img/logo.svg" sizes="any" />
+<link rel="icon" href="{{ media }}/img/icon-192.png" type="image/png" sizes="192x192" />
+<title>{{ _('Authorization Required') }} - {{ boardinfo.hostname ?? '?' }} - LuCI</title>
+</head>
+<body class="login-page lang_{{ dispatcher.lang }}" data-lang="{{ dispatcher.lang }}">
+<div class="login-container">
+	<div class="login-card">
+		{% if (loginBranding): %}
+		<div class="login-header login-header-branded">
+			{% if (loginLogo): %}
+			<img class="login-brand-logo" src="{{ loginLogo }}" alt="" />
+			{% else %}
+			<svg class="login-brand-logo" viewBox="0 0 60 60" aria-hidden="true">
+				<circle cx="30" cy="30" r="18" fill="var(--proton-accent)" opacity="0.2"/>
+				<circle cx="30" cy="30" r="12" fill="var(--proton-accent)" opacity="0.4"/>
+				<circle cx="30" cy="30" r="6" fill="var(--proton-accent)"/>
+				<ellipse cx="30" cy="30" rx="22" ry="8" fill="none" stroke="var(--proton-accent)" stroke-width="1.5" opacity="0.6" transform="rotate(-20 30 30)"/>
+				<ellipse cx="30" cy="30" rx="22" ry="8" fill="none" stroke="var(--proton-accent)" stroke-width="1.5" opacity="0.4" transform="rotate(40 30 30)"/>
+			</svg>
+			{% endif %}
+			{% if (!loginLogoOnly): %}<span class="login-brand-name">{{ loginName }}</span>{% endif %}
+		</div>
+		{% else %}
+		<div class="login-header">
+			<svg class="login-logo" viewBox="0 0 200 60" aria-label="Proton2025">
+				<circle cx="25" cy="30" r="18" fill="var(--proton-accent)" opacity="0.2"/>
+				<circle cx="25" cy="30" r="12" fill="var(--proton-accent)" opacity="0.4"/>
+				<circle cx="25" cy="30" r="6" fill="var(--proton-accent)"/>
+				<ellipse cx="25" cy="30" rx="22" ry="8" fill="none" stroke="var(--proton-accent)" stroke-width="1.5" opacity="0.6" transform="rotate(-20 25 30)"/>
+				<ellipse cx="25" cy="30" rx="22" ry="8" fill="none" stroke="var(--proton-accent)" stroke-width="1.5" opacity="0.4" transform="rotate(40 25 30)"/>
+				<text x="55" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="600" fill="var(--proton-fg)">Proton<tspan fill="var(--proton-accent)">2025</tspan></text>
+			</svg>
+		</div>
+		{% endif %}
+
+		{% if (fuser): %}
+		<div class="login-error">
+			{{ _('Invalid username and/or password! Please try again.') }}
+		</div>
+		{% endif %}
+
+		<form class="login-form" method="post" action="{{ dispatcher.build_url(...ctx.request_path) }}">
+			<div class="form-group">
+				<label for="luci_username">{{ _('Username') }}</label>
+				<div class="login-input-wrap">
+					<span class="login-input-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M20 21a8 8 0 0 0-16 0" />
+							<circle cx="12" cy="7" r="4" fill="none" />
+						</svg>
+					</span>
+					<input type="text" id="luci_username" name="luci_username"
+						value="{{ fuser ?? 'root' }}" autocomplete="username"
+						autocapitalize="off" />
+				</div>
+			</div>
+
+			<div class="form-group">
+				<label for="luci_password">{{ _('Password') }}</label>
+				<div class="login-input-wrap login-password-wrap">
+					<span class="login-input-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="5" y="10" width="14" height="10" rx="2" fill="none" />
+							<path d="M8 10V7a4 4 0 0 1 8 0v3" />
+						</svg>
+					</span>
+					<!-- ÃËœÃÂ¼Ã‘Â ÃÂ¿Ã‘â‚¬ÃÂµÃÂ´ÃÂ·ÃÂ°ÃÂ¿ÃÂ¾ÃÂ»ÃÂ½ÃÂµÃÂ½ÃÂ¾ ('root'), ÃÂ¿ÃÂ¾Ã‘ÂÃ‘â€šÃÂ¾ÃÂ¼Ã‘Æ’ Ã‘â€žÃÂ¾ÃÂºÃ‘Æ’Ã‘Â Ã‘ÂÃ‘â‚¬ÃÂ°ÃÂ·Ã‘Æ’ ÃÂ½ÃÂ° ÃÂ¿ÃÂ°Ã‘â‚¬ÃÂ¾ÃÂ»ÃÂµ,
+					     ÃÂºÃÂ°ÃÂº ÃÂ² bootstrap. Ãâ€¢Ã‘ÂÃÂ»ÃÂ¸ ÃÂ¸ÃÂ¼Ã‘Â ÃÂ¿Ã‘Æ’Ã‘ÂÃ‘â€šÃÂ¾ÃÂµ, Ã‘ÂÃÂºÃ‘â‚¬ÃÂ¸ÃÂ¿Ã‘â€š ÃÂ½ÃÂ¸ÃÂ¶ÃÂµ ÃÂ²ÃÂµÃ‘â‚¬ÃÂ½Ã‘â€˜Ã‘â€š Ã‘â€žÃÂ¾ÃÂºÃ‘Æ’Ã‘Â ÃÂµÃÂ¼Ã‘Æ’. -->
+					<input type="password" id="luci_password" name="luci_password"
+						autocomplete="current-password" autofocus />
+					<button class="login-password-toggle" type="button" aria-label="{{ _('Show password') }}" aria-pressed="false">
+						<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+							<circle cx="12" cy="12" r="3" fill="none" />
+							<path class="login-eye-slash" d="M4 4l16 16" />
+						</svg>
+					</button>
+				</div>
+			</div>
+
+			<button type="submit">
+				<svg class="login-submit-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M14 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+					<path d="M10 17l5-5-5-5" />
+					<path d="M15 12H3" />
+				</svg>
+				<span>{{ _('Log in') }}</span>
+			</button>
+		</form>
+
+		<div class="login-powered">
+			<span>Powered by OpenWrt</span>
+		</div>
+	</div>
+</div>
+
+<script>
+// Autofocus Ã‘ÂÃ‘â€šÃÂ¾ÃÂ¸Ã‘â€š ÃÂ½ÃÂ° ÃÂ¿ÃÂ¾ÃÂ»ÃÂµ ÃÂ¿ÃÂ°Ã‘â‚¬ÃÂ¾ÃÂ»Ã‘Â (ÃÂ¸ÃÂ¼Ã‘Â ÃÂ¿Ã‘â‚¬ÃÂµÃÂ´ÃÂ·ÃÂ°ÃÂ¿ÃÂ¾ÃÂ»ÃÂ½ÃÂµÃÂ½ÃÂ¾). Ãâ€¢Ã‘ÂÃÂ»ÃÂ¸ ÃÂ¸ÃÂ¼Ã‘Â ÃÂ²Ã‘ÂÃ‘â€˜ ÃÂ¶ÃÂµ
+// ÃÂ¿Ã‘Æ’Ã‘ÂÃ‘â€šÃÂ¾ÃÂµ Ã¢â‚¬â€ ÃÂ½ÃÂ°ÃÂ¿Ã‘â‚¬ÃÂ¸ÃÂ¼ÃÂµÃ‘â‚¬, Ã‘ÂÃÂ±ÃÂ¾Ã‘â‚¬ÃÂºÃÂ° Ã‘Æ’ÃÂ±Ã‘â‚¬ÃÂ°ÃÂ»ÃÂ° ÃÂ´ÃÂµÃ‘â€žÃÂ¾ÃÂ»Ã‘â€š 'root' Ã¢â‚¬â€ Ã‘â€žÃÂ¾ÃÂºÃ‘Æ’Ã‘Â ÃÂ½Ã‘Æ’ÃÂ¶ÃÂµÃÂ½ ÃÂµÃÂ¼Ã‘Æ’.
+(function () {
+	var username = document.getElementById('luci_username');
+	if (username && !username.value) username.focus();
+})();
+
+// Password visibility toggle
+(function () {
+	var password = document.getElementById('luci_password');
+	var toggle = document.querySelector('.login-password-toggle');
+
+	if (!password || !toggle) return;
+
+	toggle.addEventListener('click', function () {
+		var visible = password.type === 'text';
+		password.type = visible ? 'password' : 'text';
+		toggle.setAttribute('aria-pressed', visible ? 'false' : 'true');
+		password.focus();
+	});
+})();
+
+// Mobile keyboard stability
+// Avoid scrollIntoView({behavior:'smooth'}) + window.resize loops which can hide/show the keyboard.
+// Use visualViewport when available and only do minimal, non-animated adjustments.
+(function () {
+	var body = document.body;
+	var container = document.querySelector('.login-container');
+	if (!body || !container) return;
+
+	var vv = window.visualViewport || null;
+	var raf = 0;
+
+	function setViewportVars() {
+		if (!vv) return;
+		document.documentElement.style.setProperty('--proton-vv-height', vv.height + 'px');
+	}
+
+	function isKeyboardOpen() {
+		if (!vv) return false;
+		// Conservative threshold; avoids toggling on small UI chrome changes
+		return vv.height < (window.innerHeight - 120);
+	}
+
+	function applyKeyboardClass() {
+		setViewportVars();
+		body.classList.toggle('proton-kb-open', isKeyboardOpen());
+	}
+
+	function keepFocusedInputVisible() {
+		var el = document.activeElement;
+		if (!el || el.tagName !== 'INPUT') return;
+
+		var margin = 16;
+		var top = vv ? vv.offsetTop : 0;
+		var height = vv ? vv.height : window.innerHeight;
+		var bottom = top + height;
+		var r = el.getBoundingClientRect();
+
+		var delta = 0;
+		if (r.bottom > bottom - margin) delta = r.bottom - (bottom - margin);
+		else if (r.top < top + margin) delta = r.top - (top + margin);
+
+		if (!delta) return;
+		container.scrollTop = container.scrollTop + delta;
+	}
+
+	function scheduleAdjust() {
+		if (raf) cancelAnimationFrame(raf);
+		raf = requestAnimationFrame(function () {
+			applyKeyboardClass();
+			// One more tick after layout settles (keyboard animation)
+			setTimeout(function () {
+				applyKeyboardClass();
+				keepFocusedInputVisible();
+			}, 0);
+		});
+	}
+
+	document.addEventListener('focusin', function (e) {
+		if (e && e.target && e.target.tagName === 'INPUT') scheduleAdjust();
+	}, true);
+
+	document.addEventListener('focusout', function () {
+		setTimeout(scheduleAdjust, 50);
+	}, true);
+
+	if (vv) {
+		vv.addEventListener('resize', scheduleAdjust);
+		vv.addEventListener('scroll', scheduleAdjust);
+	} else {
+		window.addEventListener('resize', scheduleAdjust);
+	}
+
+	scheduleAdjust();
+})();
+// Freeze login animations on submit so the unload/navigation frame never
+// flashes white: stop both renderers and cover the viewport with the
+// already-resolved theme background until the next document paints.
+(function () {
+  var form = document.querySelector('.login-form');
+  if (!form) return;
+
+  function freezeLogin() {
+    try {
+      var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+      var cover = document.createElement('div');
+      cover.setAttribute('aria-hidden', 'true');
+      cover.style.cssText = 'position:fixed;inset:0;z-index:9999;margin:0;padding:0;border:0;' +
+        'background:' + (dark ? '#0f1419' : '#ffffff') + ';pointer-events:none;';
+      document.body.appendChild(cover);
+    } catch (e) {}
+    try { window.dispatchEvent(new Event('proton-login-freeze')); } catch (e) {}
+  }
+
+  // 'submit' covers keyboard/Enter/button submits; 'click' on the submit
+  // button is a backup for programmatic form.submit() which skips the event.
+  form.addEventListener('submit', freezeLogin);
+  var submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+  if (submitBtn) submitBtn.addEventListener('click', freezeLogin);
+})();
+</script>
+<script src="{{ media }}/js/login-particles.js?v={{ __pv }}"></script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+{
+    "luci-theme-proton2025": {
+        "description": "Proton2025 theme - temperature sensors, theme settings, search cache and package upload",
+        "read": {
+            "ubus": {
+                "luci.proton-temp": [
+                    "getSensors",
+                    "getThresholds",
+                    "resetPeaks"
+                ],
+                "luci.proton-system": [
+                    "getSystemInfo"
+                ],
+                "luci.proton-search-cache": [
+                    "loadCache",
+                    "loadCacheChunk"
+                ],
+                "luci.proton-settings": [
+                    "getSettings",
+                    "getVersion",
+                    "checkUpdate"
+                ],
+                "system": [
+                    "board",
+                    "info"
+                ],
+                "network.interface": [
+                    "dump"
+                ],
+                "network.device": [
+                    "status"
+                ],
+                "luci-rpc": [
+                    "getDHCPLeases"
+                ]
+            },
+            "uci": [
+                "proton2025",
+                "network",
+                "wireless",
+                "dhcp"
+            ]
+        },
+        "write": {
+            "ubus": {
+                "luci.proton-temp": [
+                    "setThresholds"
+                ],
+                "luci.proton-settings": [
+                    "setSetting",
+                    "setSettings",
+                    "resetSettings",
+                    "installUpdate"
+                ],
+                "luci.proton-search-cache": [
+                    "saveCache",
+                    "saveCacheChunk",
+                    "commitCache",
+                    "clearCache"
+                ],
+                "luci.proton-packages": [
+                    "installLocal",
+                    "cleanup"
+                ]
+            },
+            "uci": [
+                "proton2025"
+            ],
+            "file": {
+                "/tmp/proton-upload-*": [
+                    "write"
+                ]
+            }
+        }
+    }
+}

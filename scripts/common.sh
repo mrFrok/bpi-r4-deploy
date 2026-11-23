@@ -128,6 +128,10 @@ add_packages() {
 	\cp -r "$REPO/common/packages/luci-app-modemdata-main/luci-app-modemdata/" feeds/luci/applications
 	\cp -r "$REPO/common/packages/luci-app-lite-watchdog/" feeds/luci/applications
 	\cp -r "$REPO/common/packages/luci-app-sms-tool-js-main/luci-app-sms-tool-js/" feeds/luci/applications
+	# Third-party packages, imported instead of adding a feed: fastfetch and
+	# the proton2025 LuCI theme.
+	\cp -r "$REPO/common/packages/fastfetch/" feeds/packages/utils/fastfetch
+	\cp -r "$REPO/common/packages/luci-theme-proton2025/" feeds/luci/themes/luci-theme-proton2025
 }
 
 # Files baked into the image: common/files, then the board's files on top.

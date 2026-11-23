@@ -1,0 +1,427 @@
+// Proton2025 Theme - Temperature Sensor RPC Module
+// Copyright 2025-2026 ChesterGoodiny
+// Licensed under the Apache License, Version 2.0
+// See LICENSE and NOTICE for details.
+// Reads thermal sensors from /sys/class/thermal and /sys/class/hwmon
+
+'use strict';
+
+import { readfile, lsdir, realpath, stat, popen } from 'fs';
+import { cursor } from 'uci';
+
+// Storage for peak temperatures (persists while rpcd is running)
+let peakTemps = {};
+
+// Configurable Warm / Hot / Critical thresholds (PR #82, @DoubleThePsycho).
+// Stored in proton2025.settings; defaults keep the historical 50/70/85 °C.
+const DEFAULT_THRESHOLDS = {
+	warm: 50,
+	hot: 70,
+	critical: 85
+};
+const MIN_THRESHOLD = 0;
+const MAX_THRESHOLD = 150;
+
+function validThresholds(thresholds) {
+	if (!thresholds)
+		return false;
+
+	let warm = +thresholds.warm;
+	let hot = +thresholds.hot;
+	let critical = +thresholds.critical;
+
+	return warm == warm && hot == hot && critical == critical &&
+		warm == int(warm) && hot == int(hot) && critical == int(critical) &&
+		warm >= MIN_THRESHOLD && critical <= MAX_THRESHOLD &&
+		warm < hot && hot < critical;
+}
+
+function getThresholds() {
+	let uci = cursor();
+	uci.load('proton2025');
+
+	let thresholds = {
+		warm: +(uci.get('proton2025', 'settings', 'temp_threshold_warm') ?? DEFAULT_THRESHOLDS.warm),
+		hot: +(uci.get('proton2025', 'settings', 'temp_threshold_hot') ?? DEFAULT_THRESHOLDS.hot),
+		critical: +(uci.get('proton2025', 'settings', 'temp_threshold_critical') ?? DEFAULT_THRESHOLDS.critical)
+	};
+
+	if (!validThresholds(thresholds)) {
+		return {
+			warm: DEFAULT_THRESHOLDS.warm,
+			hot: DEFAULT_THRESHOLDS.hot,
+			critical: DEFAULT_THRESHOLDS.critical
+		};
+	}
+
+	return thresholds;
+}
+
+function setThresholds(req) {
+	let thresholds = {
+		warm: +req.args?.warm,
+		hot: +req.args?.hot,
+		critical: +req.args?.critical
+	};
+
+	if (!validThresholds(thresholds)) {
+		return {
+			success: false,
+			error: 'Thresholds must be whole numbers and satisfy 0 <= warm < hot < critical <= 150',
+			thresholds: getThresholds()
+		};
+	}
+
+	let uci = cursor();
+	uci.load('proton2025');
+
+	if (!uci.get('proton2025', 'settings'))
+		uci.set('proton2025', 'settings', 'theme');
+
+	uci.set('proton2025', 'settings', 'temp_threshold_warm', '' + thresholds.warm);
+	uci.set('proton2025', 'settings', 'temp_threshold_hot', '' + thresholds.hot);
+	uci.set('proton2025', 'settings', 'temp_threshold_critical', '' + thresholds.critical);
+	uci.commit('proton2025');
+
+	return { success: true, thresholds: thresholds };
+}
+
+// --- Optional integration: luci-app-5gmodem modem temperature ---------------
+// When the 5gmodem package is installed AND the user ticked the theme setting
+// (proton2025.settings.modem_temp='1'), expose the active modem's temperature
+// as one more sensor, so it shows up in the same router temperature block.
+const MODEM_MARKER = '/usr/share/5gmodem/5gmodem.sh';
+// Снимок метрик у приложения - НА КАЖДЫЙ модем (имя строится из USB-пути), а не
+// один общий, как было раньше. Поэтому фиксированного пути к кэшу больше нет:
+// файл ищется по модему, см. modemCacheFile().
+const MODEM_CACHE_DIR = '/tmp';
+// Насколько старым может быть снимок, чтобы его ещё показывать. Приложение
+// обновляет снимок ТОЛЬКО активного модема, поэтому у неактивных он неизбежно
+// стареет - и показывать их температуру как текущую было бы враньём.
+const MODEM_MAX_AGE = 120;
+
+function modemInstalled() {
+	return stat(MODEM_MARKER) != null;
+}
+
+function modemTempEnabled() {
+	let uci = cursor();
+	uci.load('proton2025');
+	return uci.get('proton2025', 'settings', 'modem_temp') == '1';
+}
+
+// Short model tag for the compact temperature block (the widget has little
+// horizontal room). Take the first whitespace token that contains a digit -
+// that is the model number - and drop dashes:
+//   "Fibocom FM350-GL"        -> "FM350GL"
+//   "Telit LM960"             -> "LM960"
+//   "Fibocom L850 LTE Module" -> "L850"
+function shortModel(name) {
+	let toks = split(trim(name), /[ \t]+/);
+	for (let tk in toks) {
+		if (match(tk, /[0-9]/))
+			return replace(tk, /-/g, '');
+	}
+	return trim(name);
+}
+
+// Все модемы, известные приложению. Оно заводит на каждый секцию типа 'modem'
+// с .path (USB-путь) и .model, разобранной его же опросом. Раньше здесь брался
+// только активный модем - но снимок метрик теперь отдельный на каждый, поэтому
+// показать можно все сразу.
+function modemList() {
+	let uci = cursor();
+	uci.load('5gmodem');
+	let out = [];
+	uci.foreach('5gmodem', 'modem', function(s) {
+		if (s.path == null || length(trim(s.path)) == 0)
+			return;
+		push(out, { path: trim(s.path), model: s.model });
+	});
+	return out;
+}
+
+// Имя модема для компактного блока температур; "Modem" как запасной вариант.
+function modemLabel(model) {
+	if (model != null && length(trim(model)) > 0)
+		return shortModel(model);
+	return 'Modem';
+}
+
+// Файл снимка для конкретного модема.
+//
+// Имя приложение строит из USB-пути, заменяя все не-буквенно-цифровые символы
+// подчёркиванием. Точное имя мы НЕ воспроизводим: на той стороне в ключ попадает
+// ещё и перевод строки, из-за чего в конце появляется лишнее подчёркивание
+// ("2-1" -> "2_1_"). Это артефакт реализации, он может исчезнуть при любой
+// правке там - поэтому принимаем оба варианта.
+// Сравниваем ПОЛНЫМ именем, а не префиксом: путь "2-1" префиксно совпал бы и с
+// файлом модема "2-1.1", то есть виджет показал бы чужую температуру.
+function modemCacheFile(path) {
+	let base = 'metrics_' + replace(path, /[^A-Za-z0-9]/g, '_');
+	let ents = lsdir(MODEM_CACHE_DIR);
+	if (!ents) return null;
+	for (let e in ents) {
+		if (e == '5gmodem_' + base + '.json' || e == '5gmodem_' + base + '_.json')
+			return MODEM_CACHE_DIR + '/' + e;
+	}
+	return null;
+}
+
+// Read the modem temperature sensor from the app's metrics cache. The cache is
+// written by `5gmodem.sh cached`; we also kick a THROTTLED, non-blocking refresh
+// (cached 30 -> re-reads the modem at most every 30s, instant if fresh) so the
+// value keeps updating while the status page is open, without ever stalling this
+// call. The refresh is backgrounded WITH its fds redirected (see rpcd fd-detach
+// rule) so rpcd does not wait on it.
+// Сенсор ОДНОГО модема из его снимка. null - если модема нет в системе, снимок
+// устарел или у прошивки вовсе нет датчика температуры.
+function modemSensorOne(m, now) {
+	let file = modemCacheFile(m.path);
+	if (!file) return null;
+
+	// Неактивные модемы приложение не опрашивает, их снимок только стареет.
+	// Показывать такое как текущую температуру нельзя.
+	let st = stat(file);
+	if (!st || (now - st.mtime) > MODEM_MAX_AGE)
+		return null;
+
+	let raw = readfile(file);
+	if (!raw) return null;
+
+	let j;
+	try { j = json(raw); } catch (e) { return null; }
+	// Часть прошивок градусов не отдают вовсе (напр. Compal RXM-G1: там есть
+	// только уровень троттлинга в отдельном поле). Тогда сенсора просто нет -
+	// выдавать уровень 0-3 за градусы нельзя.
+	if (!j || !j.mtemp) return null;
+
+	// mtemp looks like "54.0 &deg;C" - pull the leading number, to milli-degC.
+	let mm = match(j.mtemp, /-?[0-9]+(\.[0-9]+)?/);
+	if (!mm) return null;
+	let c = +mm[0];
+	if (c != c) return null;             // NaN guard
+
+	let milli = int(c * 1000);
+	let key = file;
+	if (peakTemps[key] == null || milli > peakTemps[key])
+		peakTemps[key] = milli;
+
+	return {
+		name: modemLabel(m.model),
+		temp: milli,
+		peak: peakTemps[key],
+		// Путь уникален для каждого модема: он же ключ пикового значения, и по
+		// нему виджет отличает сенсоры друг от друга.
+		path: 'modem:5gmodem:' + m.path,
+		source: '5gmodem'
+	};
+}
+
+function getModemSensors() {
+	if (!modemTempEnabled() || !modemInstalled())
+		return [];
+
+	// Обновление пинаем ОДИН раз на вызов, а не на каждый модем: приложение всё
+	// равно опрашивает только активный, а лишние запуски множили бы процессы.
+	let h = popen(MODEM_MARKER + ' cached 30 >/dev/null 2>&1 &');
+	if (h) h.close();
+
+	let now = time();
+	let out = [];
+	for (let m in modemList()) {
+		let s = modemSensorOne(m, now);
+		if (s != null) push(out, s);
+	}
+	return out;
+}
+
+// Read file content safely, return null on error
+function readFileContent(path) {
+	let content = readfile(path);
+	return content ? trim(content) : null;
+}
+
+// Simple glob for thermal/hwmon directories
+function findDirs(basePath, prefix) {
+	let entries = lsdir(basePath);
+	if (!entries) return [];
+
+	let result = [];
+	for (let name in entries) {
+		if (index(name, prefix) == 0) {
+			push(result, basePath + '/' + name);
+		}
+	}
+	return result;
+}
+
+// Get all temperature sensors
+function getSensors() {
+	let sensors = [];
+
+	// Prefer hwmon sensors and add thermal_zone sensors only when they are
+	// not already represented by an hwmon device. This follows the same
+	// principle as luci-app-temp-status and avoids temperature based dedup.
+	let hwmonDeviceIds = {};
+	let hwmonPathIds = {};
+
+	// === 1. Read hwmon sensors ===
+	let hwmonDirs = findDirs('/sys/class/hwmon', 'hwmon');
+
+	for (let hwmonPath in hwmonDirs) {
+		let deviceName = readFileContent(hwmonPath + '/name') || 'hwmon';
+		let hwmonDevId = realpath(hwmonPath + '/device');
+		let hwmonPathId = realpath(hwmonPath);
+		let hasTempSensor = false;
+
+		// Find all temp*_input files
+		let files = lsdir(hwmonPath);
+		if (!files) continue;
+
+		for (let file in files) {
+			// Check if file exactly matches temp*_input.
+			// Do not accept files such as temp1_input_alarm.
+			if (!match(file, /^temp[0-9]+_input$/))
+				continue;
+
+			let tempPath = hwmonPath + '/' + file;
+			let temp = readFileContent(tempPath);
+			if (temp == null) continue;
+
+			let tempValue = +temp;
+			if (tempValue != tempValue) continue; // NaN check
+
+			// Extract index from temp1_input -> 1
+			let idx = substr(file, 4, index(file, '_input') - 4);
+
+			// Try to read label
+			let labelPath = hwmonPath + '/temp' + idx + '_label';
+			let label = readFileContent(labelPath);
+
+			let sensorName = label || deviceName;
+
+			// Update peak temperature
+			let key = tempPath;
+			if (peakTemps[key] == null || tempValue > peakTemps[key]) {
+				peakTemps[key] = tempValue;
+			}
+
+			push(sensors, {
+				name: sensorName,
+				temp: tempValue,
+				peak: peakTemps[key],
+				path: tempPath,
+				source: 'hwmon'
+			});
+
+			hasTempSensor = true;
+		}
+
+		if (hasTempSensor) {
+			if (hwmonDevId != null)
+				hwmonDeviceIds[hwmonDevId] = true;
+
+			if (hwmonPathId != null)
+				hwmonPathIds[hwmonPathId] = true;
+		}
+	}
+
+	// === 2. Read thermal_zone sensors ===
+	let thermalZones = findDirs('/sys/class/thermal', 'thermal_zone');
+
+	for (let zonePath in thermalZones) {
+		let zonePathId = realpath(zonePath);
+		let zoneDevId = realpath(zonePath + '/device');
+		let isDuplicate =
+			(zonePathId != null && hwmonDeviceIds[zonePathId] == true) ||
+			(zoneDevId != null && hwmonDeviceIds[zoneDevId] == true);
+
+		// Some thermal-zone backed hwmon nodes are exposed below the
+		// thermal_zone sysfs path itself. Catch that form as well, even
+		// when the hwmon device symlink is missing or not comparable.
+		if (!isDuplicate && zonePathId != null) {
+			for (let hwmonPathId in hwmonPathIds) {
+				if (hwmonPathId == zonePathId || index(hwmonPathId, zonePathId + '/') == 0) {
+					isDuplicate = true;
+					break;
+				}
+			}
+		}
+
+		if (isDuplicate)
+			continue;
+
+		let temp = readFileContent(zonePath + '/temp');
+		if (temp == null) continue;
+
+		let tempValue = +temp;
+		if (tempValue != tempValue) continue; // NaN check
+
+		let type = readFileContent(zonePath + '/type') || 'thermal';
+
+		// Update peak temperature
+		let key = zonePath;
+		if (peakTemps[key] == null || tempValue > peakTemps[key]) {
+			peakTemps[key] = tempValue;
+		}
+
+		push(sensors, {
+			name: type,
+			temp: tempValue,
+			peak: peakTemps[key],
+			path: zonePath,
+			source: 'thermal_zone'
+		});
+	}
+
+	// === 3. Optional: modem temperatures (luci-app-5gmodem), по одному на модем ===
+	for (let ms in getModemSensors())
+		push(sensors, ms);
+
+	return { sensors: sensors };
+}
+
+// Reset all peak temperatures
+function resetPeaks() {
+	peakTemps = {};
+	return { success: true };
+}
+
+// Which optional integrations are available on this router. The settings UI
+// uses this to show the matching toggle ONLY when the backing package exists.
+function getIntegrations() {
+	return { modem: modemInstalled() };
+}
+
+// RPC method definitions
+const methods = {
+	getSensors: {
+		call: function() {
+			return getSensors();
+		}
+	},
+	resetPeaks: {
+		call: function() {
+			return resetPeaks();
+		}
+	},
+	getThresholds: {
+		call: function() {
+			return getThresholds();
+		}
+	},
+	setThresholds: {
+		args: { warm: 32, hot: 32, critical: 32 },
+		call: function(req) {
+			return setThresholds(req);
+		}
+	},
+	getIntegrations: {
+		call: function() {
+			return getIntegrations();
+		}
+	}
+};
+
+return { 'luci.proton-temp': methods };
