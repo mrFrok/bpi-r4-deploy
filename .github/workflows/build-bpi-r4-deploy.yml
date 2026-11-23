@@ -134,6 +134,17 @@ jobs:
           # previous run, or its stale files would ship with this one.
           rm -rf rel-*
 
+          # Standard (Wi-Fi) builds are sysupgrade only: no boot/disk images,
+          # so there is nothing to assemble per variant. One board (4 GB), one
+          # file.
+          if [ "$VARIANT" = "standard" ]; then
+            mkdir -p rel-4gb
+            cp "$FILOGIC"/*.itb rel-4gb/bpi-r4.itb
+            cp "$FILOGIC/config.buildinfo" rel-4gb/
+            ( cd rel-4gb && sha256sum bpi-r4.itb > sha256sums )
+            exit 0
+          fi
+
           # Prepare artifact directory for one release tag
           # Args: dir, itb_src, itb_dst, nvme, sdcard, emmc, snand
           make_release_dir() {
@@ -219,6 +230,9 @@ jobs:
       # bootconf; a wrong one (8 GB PoE carried the non-PoE one until 2026-10)
       # leaves the board without a system. The FIP sits at 6656k.
       - name: Check the U-Boot board configuration in the images
+        # Standard builds carry the sysupgrade .itb only: no boot images, so
+        # nothing to check there.
+        if: github.event.inputs.variant != 'standard'
         run: |
           check() {
             dd if="$1" bs=1k skip=6656 count=4096 2>/dev/null | strings | grep -qx "bootconf=$2" \
@@ -358,7 +372,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release-4gb-poe
-        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard')
+        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard') && hashFiles('rel-4gb-poe/*') != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: release-4gb-poe
@@ -371,7 +385,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release-8gb-standard
-        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard')
+        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard') && hashFiles('rel-8gb/*') != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: release-8gb-standard
@@ -384,7 +398,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release-8gb-poe
-        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard')
+        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard') && hashFiles('rel-8gb-poe/*') != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: release-8gb-poe

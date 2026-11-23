@@ -108,11 +108,10 @@ mt7988a-bananapi-bpi-r4-nvme
   DEVICE_COMPAT_MESSAGE := The non-switch ports were renamed to match the board/case labels
   KERNEL_LOADADDR := 0x46000000
 
-  ARTIFACTS := \
-      emmc-img.bin \
-      nvme-img.bin \
-      sdcard.img.gz \
-      snand-img.bin
+  # ITB_ONLY (build.sh sets it for the standard variant): the board is
+  # updated with sysupgrade only, so skip the boot/disk images - and with them
+  # the U-Boot and TF-A builds they pull in.
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz snand-img.bin)
   ARTIFACT/emmc-img.bin := mt798x-gpt emmc | \
   pad-to 17k | mt7988-bl2 emmc-comb | \
   pad-to 6656k | mt7988-bl31-uboot $$(DEVICE_NAME)-emmc | \
@@ -167,11 +166,10 @@ mt7988a-bananapi-bpi-r4-nvme
   DEVICE_COMPAT_MESSAGE := The non-switch ports were renamed to match the board/case labels
   KERNEL_LOADADDR := 0x46000000
 
-  ARTIFACTS := \
-      emmc-img.bin \
-      nvme-img.bin \
-      sdcard.img.gz \
-      snand-img.bin
+  # ITB_ONLY (build.sh sets it for the standard variant): the board is
+  # updated with sysupgrade only, so skip the boot/disk images - and with them
+  # the U-Boot and TF-A builds they pull in.
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz snand-img.bin)
   ARTIFACT/emmc-img.bin := mt798x-gpt emmc | \
   pad-to 17k | mt7988-bl2 emmc-comb-4bg | \
   pad-to 6656k | mt7988-bl31-uboot $$(BPI_R4_FIP_NAME)-emmc | \
@@ -213,7 +211,7 @@ define Device/bananapi_bpi-r4
   DEVICE_DTS := mt7988a-bananapi-bpi-r4
   DEVICE_DTS_CONFIG := config-mt7988a-bananapi-bpi-r4
   $(call Device/bananapi_bpi-r4-common-4gb)
-  ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz)
 endef
 TARGET_DEVICES += bananapi_bpi-r4
 
@@ -223,7 +221,7 @@ define Device/bananapi_bpi-r4-poe
   DEVICE_DTS_CONFIG := config-mt7988a-bananapi-bpi-r4-poe
   $(call Device/bananapi_bpi-r4-common-4gb)
   DEVICE_PACKAGES += mt798x-2p5g-phy-firmware-internal kmod-mt798x-2p5g-phy
-  ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz)
   SUPPORTED_DEVICES += bananapi,bpi-r4-2g5
   UBINIZE_PARTS := fip=:$(STAGING_DIR_IMAGE)/mt7988_bananapi_bpi-r4-poe-snand-u-boot.fip
 endef
@@ -235,7 +233,7 @@ define Device/bananapi_bpi-r4-8gb
   DEVICE_DTS_CONFIG := config-mt7988a-bananapi-bpi-r4
   BPI_R4_FIP_NAME := bananapi_bpi-r4
   $(call Device/bananapi_bpi-r4-common-8gb)
-  ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz)
   SUPPORTED_DEVICES += bananapi,bpi-r4
 endef
 TARGET_DEVICES += bananapi_bpi-r4-8gb
@@ -248,7 +246,7 @@ define Device/bananapi_bpi-r4-poe-8gb
   BPI_R4_FIP_NAME := bananapi_bpi-r4-poe
   $(call Device/bananapi_bpi-r4-common-8gb)
   DEVICE_PACKAGES += mt798x-2p5g-phy-firmware-internal kmod-mt798x-2p5g-phy
-  ARTIFACTS := emmc-img.bin nvme-img.bin sdcard.img.gz
+  ARTIFACTS := $(if $(ITB_ONLY),,emmc-img.bin nvme-img.bin sdcard.img.gz)
   SUPPORTED_DEVICES += bananapi,bpi-r4-2g5
   UBINIZE_PARTS := fip=:$(STAGING_DIR_IMAGE)/mt7988_bananapi_bpi-r4-poe-snand-u-boot.fip
 endef

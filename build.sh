@@ -34,6 +34,13 @@ standard) PROFILE=filogic-mac80211-mt798x_rfb-wifi7_nic ;;
 wired)    PROFILE=filogic ;;
 esac
 
+# The standard variant is installed and updated with sysupgrade only, so its
+# boot/disk images are not needed. Skipping them also keeps U-Boot and TF-A out
+# of the build, which is a good part of the build time.
+if [ "$VARIANT" = standard ]; then
+	export ITB_ONLY=1
+fi
+
 fetch_sources
 add_kernel_patches
 
