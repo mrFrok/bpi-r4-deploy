@@ -48,6 +48,7 @@ board_packages
 
 board_after_feeds
 add_after_feeds
+host_toolchain_fixes
 
 \cp "$REPO/boards/$BOARD/configs/$VARIANT.config" .config
 make defconfig

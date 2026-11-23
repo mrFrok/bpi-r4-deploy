@@ -94,6 +94,23 @@ add_files() {
 	\cp -R "$REPO/boards/$BOARD/files/." files/
 }
 
+# The tree is only tested on Ubuntu 22.04 (gcc 11). Newer host compilers
+# (gcc >= 14, where the C23 declaration of memchr() returns const void * for
+# a const argument) turn some host packages' -Werror into a hard error and
+# stop the build. Fix the known ones here, right after the feeds are in place.
+host_toolchain_fixes() {
+	local mk=package/utils/dtc/Makefile
+
+	# dtc 1.7.2: meson.build sets werror=true, and fdt_overlay.c assigns
+	# memchr()'s const void * to a char *. -Dwerror=false has to land before
+	# $(eval $(call HostBuild)), which freezes MESON_HOST_ARGS.
+	sed -i 's|^MESON_HOST_ARGS += \$(MESON_ARGS)$|&\n\n# Relax -Werror for newer host compilers (fdt_overlay.c memchr constness).\nMESON_HOST_ARGS += -Dwerror=false|' "$mk"
+	grep -q '^MESON_HOST_ARGS += -Dwerror=false$' "$mk" || {
+		echo "host_toolchain_fixes: $mk no longer has MESON_HOST_ARGS to extend" >&2
+		exit 1
+	}
+}
+
 add_after_feeds() {
 	\cp "$REPO/boards/$BOARD/fit.sh" package/utils/fitblk/files/fit.sh
 
