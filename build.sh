@@ -61,6 +61,17 @@ add_after_feeds
 host_toolchain_fixes
 
 \cp "$REPO/boards/$BOARD/configs/$VARIANT.config" .config
+
+# The MTK autobuild's bootloader script enables the board's U-Boot packages
+# during prepare. The standard variant has no boot images and no use for them,
+# so turn them off again before defconfig normalises the file. TF-A goes the
+# same way (add_config below).
+if [ -n "${ITB_ONLY:-}" ]; then
+	for uboot in emmc sdmmc snand; do
+		echo "# CONFIG_PACKAGE_u-boot-mt7988_bananapi_bpi-r4-$uboot is not set" >> .config
+	done
+fi
+
 make defconfig
 add_config
 board_config

@@ -169,6 +169,8 @@ add_after_feeds() {
 }
 
 add_config() {
+	# TF-A is only needed by the boot images, which ITB_ONLY drops.
+	[ -n "${ITB_ONLY:-}" ] && return 0
 	echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-emmc-comb-4bg=y" >> .config
 	echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-sdmmc-comb-4bg=y" >> .config
 	echo "CONFIG_PACKAGE_trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg=y" >> .config
