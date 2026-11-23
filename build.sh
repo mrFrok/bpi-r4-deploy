@@ -8,6 +8,8 @@
 # Run from the repository root. Source checkouts in ./openwrt and
 # ./mtk-openwrt-feeds are reset and cleaned first, keeping only ./openwrt/dl
 # for downloaded sources. Images end up in openwrt/bin/targets/mediatek/filogic.
+# KEEP_BUILD=1 also keeps openwrt/{build_dir,staging_dir,tmp}, so a rerun
+# rebuilds only what changed instead of everything (see fetch_sources).
 #
 # What is shared by both boards lives in common/, what is not in boards/.
 # The upstream revisions are in pins.conf.
@@ -25,6 +27,7 @@ REPO=$(pwd)
 . "$REPO/boards/$BOARD/board.sh"
 
 load_pins "$REPO/pins.conf"
+check_keep_build
 
 case $VARIANT in
 standard) PROFILE=filogic-mac80211-mt798x_rfb-wifi7_nic ;;

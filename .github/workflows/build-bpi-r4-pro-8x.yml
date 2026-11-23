@@ -48,6 +48,11 @@ jobs:
     # GitHub-hosted runners; linux/x64 are implied, they are spelled out so the
     # intent is readable.
     runs-on: [self-hosted, linux, x64, bpi-r4]
+    env:
+      # Self-hosted runner with a persistent workspace: keep the compiled
+      # objects between runs, so a rerun rebuilds only what changed instead of
+      # the whole 2-hour build. Unset this (or set 0) for a from-scratch build.
+      KEEP_BUILD: 1
 
     steps:
       - name: Checkout repository
@@ -120,6 +125,10 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.variant }}"
           FILOGIC="openwrt/bin/targets/mediatek/filogic"
+
+          # The workspace persists between runs: drop the release dirs of the
+          # previous run, or its stale files would ship with this one.
+          rm -rf rel-*
 
           mkdir -p rel-pro
           cp "${FILOGIC}/openwrt-mediatek-filogic-bananapi_bpi-r4-pro-8x-squashfs-sysupgrade.itb" rel-pro/bpi-r4-pro-8x.itb

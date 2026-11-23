@@ -14,9 +14,11 @@ load_pins() {
 fetch_source() {
 	local dir=$1 url=$2 branch=$3 commit=$4 clean_exclude=${5:-}
 	local -a clean_args=(-dffx)
-	if [ -n "$clean_exclude" ]; then
-		clean_args+=(-e "$clean_exclude")
-	fi
+	local p
+	# clean_exclude is a space-separated list of paths relative to $dir.
+	for p in $clean_exclude; do
+		clean_args+=(-e "$p")
+	done
 
 	if [ ! -d "$dir/.git" ]; then
 		rm -rf "$dir"
@@ -30,9 +32,35 @@ fetch_source() {
 	git -C "$dir" checkout "$commit"
 }
 
+# Sources are always reset, but with KEEP_BUILD their build products survive.
+# Those objects belong to the tree they were built from, and pins.conf insists
+# that OpenWrt and the MTK feed move together: if the pins changed since the
+# last run, drop them instead of mixing two builds.
+check_keep_build() {
+	[ -n "${KEEP_BUILD:-}" ] || return 0
+	[ -d openwrt ] || return 0
+
+	local stamp=openwrt/build_dir/.pins pins="$OPENWRT_COMMIT $MTK_COMMIT"
+	if [ -f "$stamp" ] && ! cmp -s "$stamp" <(printf '%s\n' "$pins"); then
+		echo "pins.conf changed since the last build: dropping build_dir and staging_dir"
+		rm -rf openwrt/build_dir openwrt/staging_dir
+	fi
+	mkdir -p openwrt/build_dir
+	printf '%s\n' "$pins" > "$stamp"
+}
+
 fetch_sources() {
 	# Keep downloaded sources; remove nested feed repositories and all build state.
-	fetch_source openwrt https://github.com/openwrt/openwrt.git openwrt-25.12 "$OPENWRT_COMMIT" /dl
+	# KEEP_BUILD=1 keeps the compiled objects as well (build_dir, staging_dir,
+	# tmp), so a rerun only rebuilds what changed instead of everything. It is
+	# meant for a persistent workspace such as a self-hosted runner; release
+	# images are built from a clean tree. The sources themselves are always
+	# reset, and openwrt/.ab is always removed, so the MTK autobuild prepare
+	# step re-applies the patches to the reset tree.
+	local keep=
+	[ -n "${KEEP_BUILD:-}" ] && keep="/build_dir /staging_dir /tmp"
+
+	fetch_source openwrt https://github.com/openwrt/openwrt.git openwrt-25.12 "$OPENWRT_COMMIT" "/dl $keep"
 	fetch_source mtk-openwrt-feeds https://github.com/mediatek/mtk-openwrt-feeds main "$MTK_COMMIT"
 }
 
