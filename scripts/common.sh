@@ -52,16 +52,31 @@ check_keep_build() {
 fetch_sources() {
 	# Keep downloaded sources; remove nested feed repositories and all build state.
 	# KEEP_BUILD=1 keeps the compiled objects as well (build_dir, staging_dir,
-	# tmp), so a rerun only rebuilds what changed instead of everything. It is
-	# meant for a persistent workspace such as a self-hosted runner; release
-	# images are built from a clean tree. The sources themselves are always
-	# reset, and openwrt/.ab is always removed, so the MTK autobuild prepare
-	# step re-applies the patches to the reset tree.
+	# tmp, and feeds/ instead of cloning the feed repositories again), so a
+	# rerun only rebuilds what changed instead of everything. It is meant for a
+	# persistent workspace such as a self-hosted runner; release images are
+	# built from a clean tree. The sources themselves are always reset, and
+	# openwrt/.ab is always removed, so the MTK autobuild prepare step
+	# re-applies the patches to the reset tree.
 	local keep=
-	[ -n "${KEEP_BUILD:-}" ] && keep="/build_dir /staging_dir /tmp"
+	[ -n "${KEEP_BUILD:-}" ] && keep="/build_dir /staging_dir /tmp /feeds"
 
 	fetch_source openwrt https://github.com/openwrt/openwrt.git openwrt-25.12 "$OPENWRT_COMMIT" "/dl $keep"
 	fetch_source mtk-openwrt-feeds https://github.com/mediatek/mtk-openwrt-feeds main "$MTK_COMMIT"
+
+	# With KEEP_BUILD the feed repositories are kept too: re-cloning them gives
+	# every file a fresh mtime, and make then rebuilds all feed packages. Reset
+	# and clean them in place instead. The clean also drops the copies
+	# add_packages() made into them on the previous run, so a package that was
+	# renamed or deleted cannot linger.
+	if [ -n "${KEEP_BUILD:-}" ]; then
+		local feed
+		for feed in openwrt/feeds/*/; do
+			[ -d "$feed/.git" ] || continue
+			git -C "$feed" reset --hard -q
+			git -C "$feed" clean -qfdx
+		done
+	fi
 }
 
 # Kernel patches for both boards go into the MTK feed, so the autobuild

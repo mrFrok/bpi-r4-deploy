@@ -39,8 +39,9 @@ board_after_feeds() {
 }
 
 board_config() {
-	# The OpenWrt SDK is per target, so it covers the Pro 8X too
-	# (published as release-sdk).
-	[ "$VARIANT" = standard ] && echo "CONFIG_SDK=y" >> .config
+	# The OpenWrt SDK is a separate ~167 MB tarball and a few minutes of build
+	# time; the image does not use it. Build it only when asked (workflow
+	# input "sdk", which also publishes release-sdk).
+	[ -n "${BUILD_SDK:-}" ] && [ "$VARIANT" = standard ] && echo "CONFIG_SDK=y" >> .config
 	return 0
 }

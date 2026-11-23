@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      sdk:
+        description: 'Also build the OpenWrt SDK tarball (only needed to compile packages for this firmware)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -53,6 +58,9 @@ jobs:
       # objects between runs, so a rerun rebuilds only what changed instead of
       # the whole 2-hour build. Unset this (or set 0) for a from-scratch build.
       KEEP_BUILD: 1
+      # The SDK is a separate tarball and a few minutes of build time; the
+      # image does not need it.
+      BUILD_SDK: ${{ github.event.inputs.sdk == 'true' && '1' || '' }}
 
     steps:
       - name: Checkout repository
@@ -315,7 +323,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release-sdk
-        if: github.event.inputs.publish == 'true' && (github.event.inputs.variant == 'standard')
+        if: github.event.inputs.publish == 'true' && github.event.inputs.sdk == 'true' && (github.event.inputs.variant == 'standard')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: release-sdk
