@@ -1,9 +1,12 @@
 # Banana Pi BPI-R4 (4 GB, 8 GB, PoE), sourced by build.sh.
 
 # common/patches/wifi/ patches this board takes (standard variant only).
-# Ivan Mironov's mt76 tx_power patch (for BE14 cards with a bad EEPROM) is
-# left out here.
+# The mt76 tx_power patch is included: BPI-R4-NIC-BE14 modules are sold with
+# zeros instead of tx_power values in the EEPROM for 2.4/5 GHz, which shows up
+# as 6-7 dBm limits in `iw dev`. Upstream left it out because their card had a
+# good EEPROM; the Pro 8X board takes the same patch.
 WIFI_PATCHES="
+	mt76/100-wifi-mt76-mt7996-Use-tx_power-from-default-fw-if-EEP.patch
 	mac80211/0999-fix-mac80211-btwt-ap-mode-he-btwt-supported.patch
 	hostapd/0264-wpa_s-add-btwt-join-command.patch
 	mt76/9999-w-mt7996-per-band-leds.patch
